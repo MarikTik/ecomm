@@ -2,7 +2,7 @@
 /**
 * @file config.hpp
 *
-* @brief Internal protocol configuration definitions for the etask communication framework.
+* @brief Internal protocol configuration definitions for the ecomm communication framework.
 *
 * This header provides internal compile-time configuration options used by the protocol layer.
 * Users are not expected to modify protocol metadata directly in code. Instead, static definitions

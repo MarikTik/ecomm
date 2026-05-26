@@ -2,12 +2,12 @@
 /**
 * @file basic_packet.hpp
 *
-* @brief Definition of the basic fixed-size packet structure for etask communication protocol.
+* @brief Definition of the basic fixed-size packet structure for ecomm communication protocol.
 *
 * @ingroup ecomm_protocol ecomm::protocol
 *
 * This file defines the minimal packet structure (`basic_packet`) used for encoding and decoding 
-* messages exchanged between systems in the etask framework. 
+* messages exchanged between systems in the ecomm framework. 
 * 
 * A basic_packet consists of:
 * - A compact packet_header (ecomm::packet_header) which encodes protocol metadata
@@ -51,7 +51,7 @@ namespace ecomm::protocol {
     #pragma pack(push, 1) // Ensure 1-byte packing for packet_header and payload alignment
     /**
     * @struct basic_packet
-    * @brief Core packet structure for etask communication without checksum framing.
+    * @brief Core packet structure for ecomm communication without checksum framing.
     * 
     * @tparam PacketSize The total size of the packet in bytes (including packet_header, task_id, and payload). Must be word-aligned.
     * @tparam TaskID_t The underlying type used for task identifiers (e.g. uint8_t, uint16_t).

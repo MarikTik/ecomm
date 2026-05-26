@@ -2,7 +2,7 @@
 /**
 * @file packet_header.hpp
 *
-* @brief Immutable packet packet_header definition for etask communication protocol.
+* @brief Immutable packet packet_header definition for ecomm communication protocol.
 *
 * @ingroup ecomm_protocol ecomm::protocol
 *

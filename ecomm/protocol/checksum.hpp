@@ -7,7 +7,7 @@
 * @ingroup ecomm_protocol ecomm::protocol
 *
 * This file defines available checksum policy types that can be used within 
-* framed packets in the etask communication framework. 
+* framed packets in the ecomm communication framework. 
 * 
 * Each policy defines:
 *  - value_type: the type of checksum result (e.g., uint8_t, uint16_t, etc.)

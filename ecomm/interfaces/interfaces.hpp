@@ -2,12 +2,12 @@
 /**
 * @file interfaces.hpp
 *
-* @brief Aggregates all communication interface implementations in the `etask` library.
+* @brief Aggregates all communication interface implementations in the `ecomm` library.
 *
 * @defgroup ecomm_interfaces ecomm::interfaces
 *
 * This file serves as a unified inclusion point for all available communication interface headers
-* used by the `etask` task dispatching system. Each interface is implemented as a header-only
+* used by the `ecomm` task dispatching system. Each interface is implemented as a header-only
 * class using CRTP (Curiously Recurring Template Pattern) and includes both declarations
 * and inline definitions through corresponding `.tpp` files.
 *

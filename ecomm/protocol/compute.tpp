@@ -19,8 +19,8 @@
 * - 2025-07-14 Added `noexcept` specifier to methods for better exception safety. 
 * - 2025-07-14 Modified crc struct implementation to be a standalone function `crc_generic`.
 */
-#ifndef ETASK_COMM_PROTOCOL_COMPUTE_TPP_
-#define ETASK_COMM_PROTOCOL_COMPUTE_TPP_
+#ifndef ECOMM_PROTOCOL_COMPUTE_TPP_
+#define ECOMM_PROTOCOL_COMPUTE_TPP_
 #include <type_traits>
 #include <cstddef>
 #include "compute.hpp"
@@ -29,7 +29,7 @@
 #include "esp_crc.h" // ESP-IDF CRC functions
 #endif
 
-namespace etask::comm::protocol::details {
+namespace ecomm::protocol::details {
     
     /**
     * @brief Generic optimized summation for misaligned packet tail.
@@ -107,9 +107,9 @@ namespace etask::comm::protocol::details {
         }
         return crc ^ final_xor;
     }
-} // namespace etask::comm::protocol::details
+} // namespace ecomm::protocol::details
 
-namespace etask::comm::protocol {
+namespace ecomm::protocol {
     inline sum8::value_type compute<sum8>::operator()(const std::byte* data, size_t size) const noexcept
     {
         return details::sum_generic<sum8::value_type>(data, size);
@@ -356,6 +356,6 @@ namespace etask::comm::protocol {
         return static_cast<uint16_t>(~sum);
     }
     
-} // namespace etask::comm::protocol
+} // namespace ecomm::protocol
 
-#endif // ETASK_COMM_PROTOCOL_COMPUTE_TPP_
+#endif // ECOMM_PROTOCOL_COMPUTE_TPP_

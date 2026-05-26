@@ -12,7 +12,7 @@
 * over a wifi connection using a `WiFiServer`.
 *
 * The interface supports only a single active wifi client at a time, simplifying session
-* management and aligning with the current design of the `etask` library focused on
+* management and aligning with the current design of the `ecomm` library focused on
 * one-to-one communication.
 *
 * It reuses the validation pipeline defined in `validator.hpp` to automatically check and seal

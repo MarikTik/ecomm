@@ -2,7 +2,7 @@
 /**
 * @file protocol.hpp
 *
-* @brief High-level communication protocol definitions for etask framework.
+* @brief High-level communication protocol definitions for ecomm framework.
 *
 * @defgroup ecomm_protocol ecomm::protocol
 *

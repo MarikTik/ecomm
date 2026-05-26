@@ -2,9 +2,9 @@
 /**
 * @file validator.hpp
 *
-* @brief Packet validator system for etask communication protocol framework.
+* @brief Packet validator system for the communication protocol framework.
 *
-* @ingroup etask_comm_protocol etask::comm::protocol
+* @ingroup ecomm_protocol ecomm::protocol
 *
 * This file defines the core validator mechanism that allows compile-time specialization
 * of packet validation logic for different packet types within the protocol stack.
@@ -35,12 +35,12 @@
 * - 2025-07-03 Initial creation.
 * - 2025-07-14 Added `noexcept` specifier to methods for better exception safety.
 */
-#ifndef ETASK_PROTOCOL_VALIDATOR_HPP_
-#define ETASK_PROTOCOL_VALIDATOR_HPP_
+#ifndef ECOMM_PROTOCOL_VALIDATOR_HPP_
+#define ECOMM_PROTOCOL_VALIDATOR_HPP_
 #include "basic_packet.hpp"
 #include "framed_packet.hpp"
 
-namespace etask::comm::protocol {
+namespace ecomm::protocol {
     
     /**
     * @class validator
@@ -119,7 +119,7 @@ namespace etask::comm::protocol {
         inline void seal(packet_t& packet) const noexcept;
     };
     
-} // namespace etask::comm::protocol
+} // namespace ecomm::protocol
 
 #include "validator.tpp"
-#endif // ETASK_PROTOCOL_VALIDATOR_HPP_
+#endif // ECOMM_PROTOCOL_VALIDATOR_HPP_

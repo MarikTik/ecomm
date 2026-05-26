@@ -2,7 +2,7 @@
 /**
 * @file framed_packet.hpp
 *
-* @brief Definition of the framed packet structure for etask communication protocol with checksum support.
+* @brief Definition of the framed packet structure for ecomm communication protocol with checksum support.
 * 
 * @ingroup ecomm_protocol ecomm::protocol
 *
