@@ -39,22 +39,22 @@ target_link_libraries(ecomm INTERFACE etools)
 # ---------------------------------------------------------------------------------------
 # Examples (optional)
 # ---------------------------------------------------------------------------------------
-option(ECOMM_BUILD_EXAMPLES "Build example executables for ecomm" ON)
-if(ECOMM_BUILD_EXAMPLES)
-  file(GLOB_RECURSE ecomm_EXAMPLE_SOURCES
-      "${CMAKE_CURRENT_SOURCE_DIR}/example/*.cpp"
-      "${CMAKE_CURRENT_SOURCE_DIR}/example/**/*.cpp"
-  )
-  if(ecomm_EXAMPLE_SOURCES)
-    add_executable(ecomm_examples ${ecomm_EXAMPLE_SOURCES})
-    target_link_libraries(ecomm_examples PRIVATE ecomm)
-  endif()
-endif()
+# option(ECOMM_BUILD_EXAMPLES "Build example executables for ecomm" ON)
+# if(ECOMM_BUILD_EXAMPLES)
+#   file(GLOB_RECURSE ecomm_EXAMPLE_SOURCES
+#       "${CMAKE_CURRENT_SOURCE_DIR}/example/*.cpp"
+#       "${CMAKE_CURRENT_SOURCE_DIR}/example/**/*.cpp"
+#   )
+#   if(ecomm_EXAMPLE_SOURCES)
+#     add_executable(ecomm_examples ${ecomm_EXAMPLE_SOURCES})
+#     target_link_libraries(ecomm_examples PRIVATE ecomm)
+#   endif()
+# endif()
 
 # ---------------------------------------------------------------------------------------
 # Testing: GoogleTest for ecomm's own tests
 # ---------------------------------------------------------------------------------------
-include(CTest) # defines BUILD_TESTING
+include(CTest) # defines BUILD_TESTING (defaults ON when this is the top-level project)
 if(BUILD_TESTING)
   enable_testing()
 
@@ -63,9 +63,10 @@ if(BUILD_TESTING)
     GIT_REPOSITORY https://github.com/google/googletest.git
     GIT_TAG release-1.12.1
   )
+  set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
   FetchContent_MakeAvailable(googletest)
 
-  add_subdirectory(tests EXCLUDE_FROM_ALL)
+  add_subdirectory(tests)
 endif()
 
 # ---------------------------------------------------------------------------------------
