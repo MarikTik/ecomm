@@ -200,7 +200,7 @@ TEST(packet, layout_network_crc32) {
 // ---------------------------------------------------------------------------
 
 TEST(packet, payload_write_does_not_corrupt_header) {
-    pkt_p2p_none p{header_type::session, header_options::heartbeat};
+    pkt_p2p_none p{header_type::session, header_options::ack};
     const std::uint8_t expected_raw = p.header.raw();
 
     std::memset(p.payload, 0xFF, pkt_p2p_none::payload_size);

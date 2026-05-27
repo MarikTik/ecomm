@@ -249,7 +249,7 @@ TEST(validator_none, is_valid_always_true) {
 TEST(validator_none, seal_is_noop) {
     using pkt_t = packet<32>;
     validator<pkt_t> v{};
-    pkt_t p{header_type::firmware, header_options::heartbeat};
+    pkt_t p{header_type::firmware, header_options::ack};
 
     // Fill payload with a pattern.
     for (std::size_t i = 0; i < pkt_t::payload_size; ++i)
@@ -259,7 +259,7 @@ TEST(validator_none, seal_is_noop) {
 
     // Header must be unchanged.
     EXPECT_EQ(p.header.type(),    header_type::firmware);
-    EXPECT_TRUE(p.header.has(header_options::heartbeat));
+    EXPECT_TRUE(p.header.has(header_options::ack));
 
     // Payload must be unchanged.
     for (std::size_t i = 0; i < pkt_t::payload_size; ++i) {

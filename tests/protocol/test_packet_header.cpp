@@ -17,7 +17,7 @@
 *   - raw() matches the manually computed expected byte.
 *   - network_ids defaults: sender_id == ECOMM_BOARD_ID, receiver_id == 0.
 *   - fcs_storage zero-initialization for each checksum policy width.
-*   - has_network_ids and fcs_size compile-time constants are correct.
+*   - has_node_ids and fcs_size compile-time constants are correct.
 *   - header_options bitwise operators (|, &) produce the expected values.
 *
 * @author Mark Tikhonov <mtik.philosopher@gmail.com>
@@ -97,8 +97,19 @@ static_assert(hdr_net_none::fcs_size    == 0,  "net/none: fcs_size must be 0");
 static_assert(hdr_p2p_crc32::fcs_size  == 4,  "p2p/crc32: fcs_size must be 4");
 static_assert(hdr_net_crc32::fcs_size  == 4,  "net/crc32: fcs_size must be 4");
 
-static_assert(!hdr_p2p_none::has_network_ids, "p2p topology must not have network ids");
-static_assert( hdr_net_none::has_network_ids, "network topology must have network ids");
+static_assert(!hdr_p2p_none::has_node_ids, "p2p topology must not have node ids");
+static_assert( hdr_net_none::has_node_ids, "network topology must have node ids");
+
+// Standard-layout guarantee — required for well-defined offsetof and safe
+// byte-cast access to fields in the wire buffer.
+static_assert(std::is_standard_layout_v<hdr_p2p_none>,
+    "packet_header<p2p, none> must be standard-layout");
+static_assert(std::is_standard_layout_v<hdr_net_none>,
+    "packet_header<net, none> must be standard-layout");
+static_assert(std::is_standard_layout_v<hdr_p2p_crc32>,
+    "packet_header<p2p, crc32> must be standard-layout");
+static_assert(std::is_standard_layout_v<hdr_net_crc32>,
+    "packet_header<net, crc32> must be standard-layout");
 
 // ---------------------------------------------------------------------------
 // Test suite: default construction
@@ -178,14 +189,14 @@ TEST(packet_header, option_error_stored_correctly) {
     constexpr hdr_p2p_none h{header_type::data, header_options::error};
     EXPECT_EQ(h.options(), header_options::error);
     EXPECT_TRUE(h.has(header_options::error));
-    EXPECT_FALSE(h.has(header_options::heartbeat));
+    EXPECT_FALSE(h.has(header_options::ack));
     EXPECT_FALSE(h.has(header_options::encrypted));
 }
 
-TEST(packet_header, option_heartbeat_stored_correctly) {
-    constexpr hdr_p2p_none h{header_type::control, header_options::heartbeat};
-    EXPECT_EQ(h.options(), header_options::heartbeat);
-    EXPECT_TRUE(h.has(header_options::heartbeat));
+TEST(packet_header, option_ack_stored_correctly) {
+    constexpr hdr_p2p_none h{header_type::control, header_options::ack};
+    EXPECT_EQ(h.options(), header_options::ack);
+    EXPECT_TRUE(h.has(header_options::ack));
     EXPECT_FALSE(h.has(header_options::error));
     EXPECT_FALSE(h.has(header_options::encrypted));
 }
@@ -195,17 +206,17 @@ TEST(packet_header, option_encrypted_stored_correctly) {
     EXPECT_EQ(h.options(), header_options::encrypted);
     EXPECT_TRUE(h.has(header_options::encrypted));
     EXPECT_FALSE(h.has(header_options::error));
-    EXPECT_FALSE(h.has(header_options::heartbeat));
+    EXPECT_FALSE(h.has(header_options::ack));
 }
 
 TEST(packet_header, option_all_flags_combined) {
     constexpr header_options all =
-        header_options::error | header_options::heartbeat | header_options::encrypted;
+        header_options::error | header_options::ack | header_options::encrypted;
 
     constexpr hdr_p2p_none h{header_type::firmware, all};
 
     EXPECT_TRUE(h.has(header_options::error));
-    EXPECT_TRUE(h.has(header_options::heartbeat));
+    EXPECT_TRUE(h.has(header_options::ack));
     EXPECT_TRUE(h.has(header_options::encrypted));
     // Subset test: has() must accept the full combination too.
     EXPECT_TRUE(h.has(all));
@@ -213,8 +224,8 @@ TEST(packet_header, option_all_flags_combined) {
 
 TEST(packet_header, has_returns_false_for_absent_subset) {
     constexpr hdr_p2p_none h{header_type::data, header_options::error};
-    // heartbeat is not set, so a subset that includes it must return false.
-    constexpr header_options absent = header_options::error | header_options::heartbeat;
+    // ack is not set, so a subset that includes it must return false.
+    constexpr header_options absent = header_options::error | header_options::ack;
     EXPECT_FALSE(h.has(absent));
 }
 
@@ -230,7 +241,7 @@ TEST(packet_header, version_equals_protocol_version_after_construction) {
 TEST(packet_header, version_independent_of_type_and_options) {
     // No matter what type/options are chosen, version bits must be ECOMM_PROTOCOL_VERSION.
     constexpr header_options opts =
-        header_options::error | header_options::heartbeat | header_options::encrypted;
+        header_options::error | header_options::ack | header_options::encrypted;
 
     const hdr_p2p_none h1{header_type::firmware, opts};
     const hdr_p2p_none h2{header_type::auth,     header_options::none};
@@ -262,7 +273,7 @@ TEST(packet_header, raw_byte_data_no_options) {
 
 TEST(packet_header, raw_byte_firmware_all_options) {
     constexpr header_options all =
-        header_options::error | header_options::heartbeat | header_options::encrypted;
+        header_options::error | header_options::ack | header_options::encrypted;
     constexpr hdr_p2p_none h{header_type::firmware, all};
     EXPECT_EQ(h.raw(), make_expected_byte(header_type::firmware, all));
 }
@@ -294,12 +305,12 @@ TEST(packet_header, option_bits_do_not_affect_type) {
     for (const auto o : {
             header_options::none,
             header_options::error,
-            header_options::heartbeat,
+            header_options::ack,
             header_options::encrypted,
-            header_options::error | header_options::heartbeat,
+            header_options::error | header_options::ack,
             header_options::error | header_options::encrypted,
-            header_options::heartbeat | header_options::encrypted,
-            header_options::error | header_options::heartbeat | header_options::encrypted
+            header_options::ack | header_options::encrypted,
+            header_options::error | header_options::ack | header_options::encrypted
     }) {
         const hdr_p2p_none h{t, o};
         EXPECT_EQ(h.type(), t)
@@ -312,16 +323,16 @@ TEST(packet_header, option_bits_do_not_affect_type) {
 // ---------------------------------------------------------------------------
 
 TEST(packet_header, p2p_topology_no_network_ids) {
-    static_assert(!hdr_p2p_none::has_network_ids,
-        "point_to_point must not expose has_network_ids");
+    static_assert(!hdr_p2p_none::has_node_ids,
+        "point_to_point must not expose has_node_ids");
     // Verify the size stays 1 byte, implying no id fields exist.
     static_assert(sizeof(hdr_p2p_none) == 1,
         "p2p header must be 1 byte");
 }
 
-TEST(packet_header, network_topology_has_network_ids) {
-    static_assert(hdr_net_none::has_network_ids,
-        "network topology must expose has_network_ids");
+TEST(packet_header, network_topology_has_node_ids) {
+    static_assert(hdr_net_none::has_node_ids,
+        "network topology must expose has_node_ids");
     static_assert(sizeof(hdr_net_none) == 3,
         "network header must be 3 bytes (proto + sender + receiver)");
 }
@@ -402,13 +413,13 @@ TEST(header_options, operator_or_produces_combined_mask) {
 
 TEST(header_options, operator_and_selects_intersection) {
     constexpr header_options ab =
-        header_options::error | header_options::heartbeat;
+        header_options::error | header_options::ack;
     constexpr header_options bc =
-        header_options::heartbeat | header_options::encrypted;
+        header_options::ack | header_options::encrypted;
 
     constexpr header_options intersection = ab & bc;
 
-    EXPECT_EQ(intersection, header_options::heartbeat);
+    EXPECT_EQ(intersection, header_options::ack);
 }
 
 TEST(header_options, none_is_identity_for_or) {
