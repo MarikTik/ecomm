@@ -2,47 +2,40 @@
 /**
 * @file protocol.hpp
 *
-* @brief High-level communication protocol definitions for ecomm framework.
+* @brief Aggregator header for the ecomm protocol layer.
 *
 * @defgroup ecomm_protocol ecomm::protocol
 *
-* This file aggregates all protocol components including packet headers, checksums,
-* basic packet structures, and framed packets with checksum support.
-* It provides a unified interface for constructing, parsing, and validating communication packets.
+* Include this file to pull in every public component of `ecomm::protocol`:
+* packet header, checksum policies, the unified packet type, the validator,
+* checksum computation, and the error envelope.
 *
-* The protocol is designed for efficient serialization, transmission, and integrity verification
-* across potentially unreliable communication channels.
-*
-* The components are modular and can be extended or replaced as needed for specific use cases.
-*
-* The protocol supports:
-* - Compact packet headers with metadata
-* - Multiple checksum algorithms for integrity verification
-* - Basic fixed-size packets for simple message passing
-* - Framed packets with optional checksums for robust communication 
 * @author Mark Tikhonov <mtik.philosopher@gmail.com>
 *
 * @date 2025-07-03
 *
 * @copyright
 * Business Source License 1.1 (BSL 1.1)
-* Copyright (c) 2025 Mark Tikhonov
+* Copyright (c) 2026 Mark Tikhonov
 * Free for non-commercial use. Commercial use requires a separate license.
 * See LICENSE file for details.
+*
 * @par Changelog
-* - 2025-07-03 
-*     - Initial creation.
-* - 2025-07-15
-*     - Added `ECOMM_BOARD_ID` definition to ensure consistent board ID usage across the protocol if no user defined value is provided.
-* - 2025-07-18
-*     - Moved `ECOMM_BOARD_ID` definition to `config.hpp` for better modularity and configuration management.
+* - 2025-07-03 Initial creation.
+* - 2025-07-15 Added config.hpp include for ECOMM_BOARD_ID.
+* - 2026-05-25 Added error.hpp (error envelope).
+* - 2026-05-26 Replaced basic_packet / framed_packet with unified packet.
 */
 #ifndef ECOMM_PROTOCOL_HPP_
 #define ECOMM_PROTOCOL_HPP_
-#include "packet_header.hpp"
+
+#include "config.hpp"
+#include "topology.hpp"
 #include "checksum.hpp"
-#include "basic_packet.hpp"
-#include "framed_packet.hpp"
+#include "packet_header.hpp"
+#include "packet.hpp"
 #include "validator.hpp"
 #include "compute.hpp"
+#include "error.hpp"
+
 #endif // ECOMM_PROTOCOL_HPP_

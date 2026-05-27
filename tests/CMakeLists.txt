@@ -19,3 +19,4 @@ function(ecomm_add_test target)
 endfunction()
 
 ecomm_add_test(test_packet_header protocol/test_packet_header.cpp)
+ecomm_add_test(test_packet        protocol/test_packet.cpp)

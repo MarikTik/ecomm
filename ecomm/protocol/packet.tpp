@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: BSL-1.1
+/**
+* @file packet.tpp
+*
+* @brief Template definitions for ecomm::protocol::packet.
+*
+* @ingroup ecomm_protocol ecomm::protocol
+*
+* @author Mark Tikhonov <mtik.philosopher@gmail.com>
+*
+* @date 2026-05-26
+*
+* @copyright
+* Business Source License 1.1 (BSL 1.1)
+* Copyright (c) 2026 Mark Tikhonov
+* Free for non-commercial use. Commercial use requires a separate license.
+* See LICENSE file for details.
+*
+* @par Changelog
+* - 2026-05-26 Initial creation.
+*/
+#ifndef ECOMM_PROTOCOL_PACKET_TPP_
+#define ECOMM_PROTOCOL_PACKET_TPP_
+
+#include "packet.hpp"
+
+namespace ecomm::protocol {
+
+    template<std::size_t PacketSize, topology Topology, typename ChecksumPolicy>
+    constexpr packet<PacketSize, Topology, ChecksumPolicy>::packet(
+        header_type    type,
+        header_options opts
+    ) noexcept
+        // Delegate to packet_header's two-parameter constructor; payload is
+        // zero-initialized by the member initializer on the declaration.
+        : header{type, opts}
+    {}
+
+} // namespace ecomm::protocol
+
+#endif // ECOMM_PROTOCOL_PACKET_TPP_
