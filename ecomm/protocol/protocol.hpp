@@ -26,7 +26,7 @@
 * - 2026-05-25 Added error.hpp (error envelope).
 * - 2026-05-26 Replaced basic_packet / framed_packet with unified packet.
 * - 2026-05-27 Added header_type.hpp, header_options.hpp, node_ids.hpp,
-*              packet_layout.hpp (standard-layout refactor).
+*              header_layout.hpp (standard-layout refactor).
 */
 #ifndef ECOMM_PROTOCOL_HPP_
 #define ECOMM_PROTOCOL_HPP_
@@ -37,7 +37,7 @@
 #include "header_type.hpp"
 #include "header_options.hpp"
 #include "node_ids.hpp"
-#include "packet_layout.hpp"
+#include "header_layout.hpp"
 #include "packet_header.hpp"
 #include "packet.hpp"
 #include "validator.hpp"
