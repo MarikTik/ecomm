@@ -44,3 +44,13 @@ target_compile_definitions(test_arduino_serial_channel PRIVATE ARDUINO=1)
 ecomm_add_test(test_arduino_wifi_channel channels/test_arduino_wifi_channel.cpp)
 target_include_directories(test_arduino_wifi_channel PRIVATE ${ARDUINO_MOCK_INCLUDE_DIR})
 target_compile_definitions(test_arduino_wifi_channel PRIVATE ESP32=1)
+
+# esp_async_wifi_channel — mock ESPAsyncTCP headers injected via helpers/esp/.
+# ESP8266 is used (vs ESP32) so the critical_section compiles the simpler
+# noInterrupts/interrupts path — both are no-ops in the mock, which is correct
+# for a single-threaded host test.
+set(ESP_MOCK_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/channels/helpers/esp)
+
+ecomm_add_test(test_esp_async_wifi_channel channels/test_esp_async_wifi_channel.cpp)
+target_include_directories(test_esp_async_wifi_channel PRIVATE ${ESP_MOCK_INCLUDE_DIR})
+target_compile_definitions(test_esp_async_wifi_channel PRIVATE ESP8266=1)
