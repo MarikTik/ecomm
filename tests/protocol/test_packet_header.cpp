@@ -22,6 +22,12 @@
 *     regions; setting one field to its maximum value does not corrupt the
 *     others. Four compile-time `static_assert`s prove the masks are
 *     pairwise disjoint and together cover all 8 bits.
+*   - All four specialisations (p2p/none, p2p/crc32, net/none, net/crc32) give
+*     identical results from the shared accessor surface for the same inputs.
+*   - Field exposure per specialisation: each spec exposes exactly the fields
+*     it carries; extra-field writes do not corrupt each other or the protocol byte.
+*   - Wire field order: offsetof static_asserts lock in _byte < ids < fcs for
+*     net/crc32, and _byte < fcs for p2p/crc32.
 *   - header_options bitwise operators (|, &) produce the expected values.
 *
 * @author Mark Tikhonov <mtik.philosopher@gmail.com>
@@ -528,6 +534,227 @@ TEST(packet_header_bit_isolation, all_fields_nonzero_round_trip) {
     EXPECT_EQ(r & 0x3u,
               static_cast<std::uint8_t>(ECOMM_PROTOCOL_VERSION) & 0x3u);
 }
+
+// ---------------------------------------------------------------------------
+// Test suite: all four specialisations — shared accessor surface
+//
+// The four partial specialisations (p2p/none, p2p/crc32, net/none, net/crc32)
+// must all produce identical results from type(), options(), version(), raw(),
+// and has() for the same constructor arguments.  Any divergence would mean the
+// per-specialisation definitions in packet_header.tpp have drifted from each
+// other.
+// ---------------------------------------------------------------------------
+
+TEST(packet_header_all_specs, type_accessor_consistent_across_specs) {
+    constexpr header_type    t = header_type::session;
+    constexpr header_options o = header_options::ack;
+
+    const hdr_p2p_none  h1{t, o};
+    const hdr_p2p_crc32 h2{t, o};
+    const hdr_net_none  h3{t, o};
+    const hdr_net_crc32 h4{t, o};
+
+    EXPECT_EQ(h1.type(), t);
+    EXPECT_EQ(h2.type(), t);
+    EXPECT_EQ(h3.type(), t);
+    EXPECT_EQ(h4.type(), t);
+}
+
+TEST(packet_header_all_specs, options_accessor_consistent_across_specs) {
+    constexpr header_options o =
+        header_options::error | header_options::encrypted;
+
+    const hdr_p2p_none  h1{header_type::control, o};
+    const hdr_p2p_crc32 h2{header_type::control, o};
+    const hdr_net_none  h3{header_type::control, o};
+    const hdr_net_crc32 h4{header_type::control, o};
+
+    EXPECT_EQ(h1.options(), o);
+    EXPECT_EQ(h2.options(), o);
+    EXPECT_EQ(h3.options(), o);
+    EXPECT_EQ(h4.options(), o);
+}
+
+TEST(packet_header_all_specs, version_accessor_consistent_across_specs) {
+    const hdr_p2p_none  h1{header_type::auth, header_options::none};
+    const hdr_p2p_crc32 h2{header_type::auth, header_options::none};
+    const hdr_net_none  h3{header_type::auth, header_options::none};
+    const hdr_net_crc32 h4{header_type::auth, header_options::none};
+
+    const auto v = static_cast<std::uint8_t>(ECOMM_PROTOCOL_VERSION);
+    EXPECT_EQ(h1.version(), v);
+    EXPECT_EQ(h2.version(), v);
+    EXPECT_EQ(h3.version(), v);
+    EXPECT_EQ(h4.version(), v);
+}
+
+TEST(packet_header_all_specs, raw_byte_consistent_across_specs) {
+    // All four specialisations must pack the protocol byte identically;
+    // the extra fields (fcs, ids) live outside the protocol byte and must
+    // not alter it.
+    constexpr header_type    t = header_type::firmware;
+    constexpr header_options o =
+        header_options::error | header_options::ack | header_options::encrypted;
+    const std::uint8_t expected = make_expected_byte(t, o);
+
+    const hdr_p2p_none  h1{t, o};
+    const hdr_p2p_crc32 h2{t, o};
+    const hdr_net_none  h3{t, o};
+    const hdr_net_crc32 h4{t, o};
+
+    EXPECT_EQ(h1.raw(), expected);
+    EXPECT_EQ(h2.raw(), expected);
+    EXPECT_EQ(h3.raw(), expected);
+    EXPECT_EQ(h4.raw(), expected);
+}
+
+TEST(packet_header_all_specs, has_consistent_across_specs) {
+    constexpr header_options present = header_options::ack;
+    constexpr header_options absent  = header_options::error;
+
+    const hdr_p2p_none  h1{header_type::data, present};
+    const hdr_p2p_crc32 h2{header_type::data, present};
+    const hdr_net_none  h3{header_type::data, present};
+    const hdr_net_crc32 h4{header_type::data, present};
+
+    EXPECT_TRUE(h1.has(present)); EXPECT_FALSE(h1.has(absent));
+    EXPECT_TRUE(h2.has(present)); EXPECT_FALSE(h2.has(absent));
+    EXPECT_TRUE(h3.has(present)); EXPECT_FALSE(h3.has(absent));
+    EXPECT_TRUE(h4.has(present)); EXPECT_FALSE(h4.has(absent));
+}
+
+// ---------------------------------------------------------------------------
+// Test suite: field exposure per specialisation
+//
+// Each specialisation must expose exactly the fields it carries and no others.
+// - p2p/none    : no fcs, no ids
+// - p2p/Policy  : fcs accessible and writable; no ids
+// - net/none    : sender_id and receiver_id accessible and writable; no fcs
+// - net/Policy  : fcs + sender_id + receiver_id all accessible and writable
+//
+// The absence of a field is proved at compile time by checking that the
+// expression &h.field would not compile.  Since negative-compile tests cannot
+// live in a gtest binary, the positive direction is tested here for every
+// present field, and the type-system checks below confirm the surface area.
+// ---------------------------------------------------------------------------
+
+// Compile-time: p2p/none has no fcs or id members reachable through the public
+// interface.  Proved indirectly: sizeof must be 1 (no room for any extra field).
+static_assert(sizeof(hdr_p2p_none) == 1,
+    "p2p/none: size 1 proves no fcs or id bytes are accessible");
+
+// Compile-time: net/none has no fcs member.
+// sizeof == 3 means exactly _byte + sender_id + receiver_id.
+static_assert(sizeof(hdr_net_none) == 3,
+    "net/none: size 3 proves no fcs byte is present");
+
+// Compile-time: p2p/crc32 has fcs but no ids.
+// sizeof == 5 means exactly _byte (1) + fcs (4).
+static_assert(sizeof(hdr_p2p_crc32) == 5,
+    "p2p/crc32: size 5 proves fcs is present and no id bytes exist");
+
+// Compile-time: net/crc32 has all three extra fields.
+// sizeof == 7 means _byte (1) + sender_id (1) + receiver_id (1) + fcs (4).
+static_assert(sizeof(hdr_net_crc32) == 7,
+    "net/crc32: size 7 proves all three extra fields are present");
+
+TEST(packet_header_field_exposure, p2p_crc32_fcs_readable_and_writable) {
+    hdr_p2p_crc32 h{header_type::data, header_options::none};
+    // fcs must be zero on default construction.
+    EXPECT_EQ(h.fcs, 0u);
+    // fcs must accept a write and read it back unchanged.
+    h.fcs = 0xCAFEBABEu;
+    EXPECT_EQ(h.fcs, 0xCAFEBABEu);
+}
+
+TEST(packet_header_field_exposure, net_none_ids_readable_and_writable) {
+    hdr_net_none h{header_type::data, header_options::none};
+    // Defaults.
+    EXPECT_EQ(h.sender_id,   static_cast<std::uint8_t>(ECOMM_BOARD_ID));
+    EXPECT_EQ(h.receiver_id, 0u);
+    // Both fields must accept writes.
+    h.sender_id   = 0x11u;
+    h.receiver_id = 0x22u;
+    EXPECT_EQ(h.sender_id,   0x11u);
+    EXPECT_EQ(h.receiver_id, 0x22u);
+}
+
+TEST(packet_header_field_exposure, net_crc32_all_extra_fields_independent) {
+    // Construct with known type/options; then write distinct sentinel values
+    // into every extra field.  Verify none of them corrupt the protocol byte
+    // or each other.
+    hdr_net_crc32 h{header_type::log, header_options::encrypted};
+    const std::uint8_t expected_byte =
+        make_expected_byte(header_type::log, header_options::encrypted);
+
+    h.sender_id   = 0xAAu;
+    h.receiver_id = 0xBBu;
+    h.fcs         = 0x12345678u;
+
+    EXPECT_EQ(h.sender_id,   0xAAu);
+    EXPECT_EQ(h.receiver_id, 0xBBu);
+    EXPECT_EQ(h.fcs,         0x12345678u);
+    // Protocol byte must be unchanged.
+    EXPECT_EQ(h.raw(), expected_byte);
+    EXPECT_EQ(h.type(),    header_type::log);
+    EXPECT_EQ(h.options(), header_options::encrypted);
+    EXPECT_EQ(h.version(), static_cast<std::uint8_t>(ECOMM_PROTOCOL_VERSION));
+}
+
+TEST(packet_header_field_exposure, net_crc32_writing_fcs_does_not_touch_ids) {
+    hdr_net_crc32 h{header_type::data, header_options::none};
+    h.sender_id   = 0x42u;
+    h.receiver_id = 0x43u;
+    h.fcs         = 0xFFFFFFFFu;
+
+    // Ids must be completely unaffected by the fcs write.
+    EXPECT_EQ(h.sender_id,   0x42u);
+    EXPECT_EQ(h.receiver_id, 0x43u);
+}
+
+TEST(packet_header_field_exposure, net_crc32_writing_ids_does_not_touch_fcs) {
+    hdr_net_crc32 h{header_type::data, header_options::none};
+    h.fcs = 0xDEADBEEFu;
+    h.sender_id   = 0x55u;
+    h.receiver_id = 0x66u;
+
+    // fcs must be unaffected by the id writes.
+    EXPECT_EQ(h.fcs, 0xDEADBEEFu);
+}
+
+// ---------------------------------------------------------------------------
+// Test suite: wire field order
+//
+// offsetof proves the exact byte positions of every field in the wire layout.
+// The required order for net/crc32 is:
+//   byte 0 : _byte  (inaccessible directly, but governs the first byte)
+//   byte 1 : sender_id
+//   byte 2 : receiver_id
+//   byte 3 : fcs[0]  (first byte of the 4-byte crc32 value)
+//
+// The p2p/crc32 order is:
+//   byte 0 : _byte
+//   byte 1 : fcs[0]
+//
+// These are compile-time checks; they fire at compile time if the field
+// order in header_layout specialisations is ever changed accidentally.
+// ---------------------------------------------------------------------------
+
+// For standard-layout types offsetof is well-defined.
+static_assert(offsetof(hdr_p2p_crc32, fcs) == 1,
+    "p2p/crc32: fcs must start at byte 1 (immediately after _byte)");
+
+static_assert(offsetof(hdr_net_none, sender_id)   == 1,
+    "net/none: sender_id must start at byte 1");
+static_assert(offsetof(hdr_net_none, receiver_id) == 2,
+    "net/none: receiver_id must start at byte 2");
+
+static_assert(offsetof(hdr_net_crc32, sender_id)   == 1,
+    "net/crc32: sender_id must start at byte 1");
+static_assert(offsetof(hdr_net_crc32, receiver_id) == 2,
+    "net/crc32: receiver_id must start at byte 2");
+static_assert(offsetof(hdr_net_crc32, fcs)         == 3,
+    "net/crc32: fcs must be last — starting at byte 3");
 
 // ---------------------------------------------------------------------------
 // Test suite: header_options bitwise operators (etools::meta::enable_flags)
