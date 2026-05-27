@@ -47,32 +47,44 @@ namespace ecomm::protocol::details {
     SumType sum_generic(const std::byte* data, size_t size)
     {
         static_assert(
-            std::is_same_v<SumType, uint8_t> || 
-            std::is_same_v<SumType, uint16_t> || 
+            std::is_same_v<SumType, uint8_t> ||
+            std::is_same_v<SumType, uint16_t> ||
             std::is_same_v<SumType, uint32_t>,
             "sum_generic supports only sum8, sum16, sum32 policies."
         );
-        
-        const std::size_t* words = reinterpret_cast<const std::size_t*>(data);
-        static constexpr size_t WordSize = sizeof(std::size_t);
-        size_t word_count = size / WordSize;
+
         SumType sum = 0;
-        
-        // Bulk summation over word-sized blocks
-        for (size_t i = 0; i < word_count; ++i)sum += static_cast<SumType>(words[i]);
-        
-        if constexpr (sizeof(SumType) == sizeof(std::size_t)) return sum; // // Fully aligned - no tail
-        
-        size_t tail_offset = word_count * WordSize;
-        size_t remaining = size - tail_offset;
-        
-        const uint8_t* tail = reinterpret_cast<const uint8_t*>(data + tail_offset); 
-        
-        //Possible optimiation with constexpr branches here
-        
-        // Handle remaining bytes in the tail
-        for (size_t i = 0; i < remaining; ++i)
-        sum += static_cast<SumType>(tail[i] << (8 * (i % sizeof(SumType))));
+
+        // Word-bulk path: only safe when SumType is at least as wide as size_t.
+        // Casting a size_t word to a narrower SumType silently drops the upper
+        // bytes, making each word contribute only its lowest byte to the sum —
+        // which breaks single-byte corruption detection for sum8/sum16 on 64-bit
+        // hosts. Gate the optimisation on width equality.
+        if constexpr (sizeof(SumType) >= sizeof(std::size_t)) {
+            static constexpr size_t WordSize = sizeof(std::size_t);
+            const std::size_t* words = reinterpret_cast<const std::size_t*>(data);
+            const size_t word_count = size / WordSize;
+
+            for (size_t i = 0; i < word_count; ++i)
+                sum += static_cast<SumType>(words[i]);
+
+            // Remaining tail bytes after the last full word.
+            const size_t tail_offset = word_count * WordSize;
+            const uint8_t* tail = reinterpret_cast<const uint8_t*>(data + tail_offset);
+            const size_t remaining = size - tail_offset;
+            for (size_t i = 0; i < remaining; ++i)
+                sum += static_cast<SumType>(tail[i]);
+
+            return sum;
+        }
+
+        // Narrow types (sum8, sum16 on 64-bit): accumulate every byte individually.
+        // Every byte contributes to the sum, so single-byte corruption is always
+        // detected as long as the corrupted value differs from the original.
+        const uint8_t* bytes = reinterpret_cast<const uint8_t*>(data);
+        for (size_t i = 0; i < size; ++i)
+            sum += static_cast<SumType>(bytes[i]);
+
         return sum;
     }
     
