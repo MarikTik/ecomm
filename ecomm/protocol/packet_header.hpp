@@ -127,9 +127,9 @@ namespace ecomm::protocol {
     */
     template<>
     class packet_header<topology::point_to_point, none>
-        : private details::header_layout<false, none>
+        : private details::header_layout<topology::point_to_point, none>
     {
-        using layout = details::header_layout<false, none>;
+        using layout = details::header_layout<topology::point_to_point, none>;
 
     public:
 
@@ -190,9 +190,9 @@ namespace ecomm::protocol {
     */
     template<typename ChecksumPolicy>
     class packet_header<topology::point_to_point, ChecksumPolicy>
-        : private details::header_layout<false, ChecksumPolicy>
+        : private details::header_layout<topology::point_to_point, ChecksumPolicy>
     {
-        using layout = details::header_layout<false, ChecksumPolicy>;
+        using layout = details::header_layout<topology::point_to_point, ChecksumPolicy>;
 
     public:
 
@@ -244,9 +244,9 @@ namespace ecomm::protocol {
     */
     template<>
     class packet_header<topology::network, none>
-        : private details::header_layout<true, none>
+        : private details::header_layout<topology::network, none>
     {
-        using layout = details::header_layout<true, none>;
+        using layout = details::header_layout<topology::network, none>;
 
     public:
 
@@ -310,9 +310,9 @@ namespace ecomm::protocol {
     */
     template<typename ChecksumPolicy>
     class packet_header<topology::network, ChecksumPolicy>
-        : private details::header_layout<true, ChecksumPolicy>
+        : private details::header_layout<topology::network, ChecksumPolicy>
     {
-        using layout = details::header_layout<true, ChecksumPolicy>;
+        using layout = details::header_layout<topology::network, ChecksumPolicy>;
 
     public:
 

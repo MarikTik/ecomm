@@ -6,7 +6,7 @@
 *
 * @ingroup ecomm_protocol ecomm::protocol
 *
-* Defines `details::header_layout<HasIds, ChecksumPolicy>`, the single
+* Defines `details::header_layout<Topology, ChecksumPolicy>`, the single
 * private base struct that carries every data member of `packet_header`.
 *
 * @par Why this exists — the standard-layout requirement
@@ -35,12 +35,12 @@
 * places all addressing information contiguously at the front of the header
 * and leaves the FCS in a well-known trailing position.
 *
-* | HasIds | ChecksumPolicy | Wire layout (field declaration order)             |
-* |--------|----------------|---------------------------------------------------|
-* | false  | `none`         | `_byte`                                           |
-* | false  | non-`none`     | `_byte`, `fcs`                                    |
-* | true   | `none`         | `_byte`, `sender_id`, `receiver_id`               |
-* | true   | non-`none`     | `_byte`, `sender_id`, `receiver_id`, `fcs`        |
+* | Topology          | ChecksumPolicy | Wire layout (field declaration order)             |
+* |-------------------|----------------|---------------------------------------------------|
+* | `point_to_point`  | `none`         | `_byte`                                           |
+* | `point_to_point`  | non-`none`     | `_byte`, `fcs`                                    |
+* | `network`         | `none`         | `_byte`, `sender_id`, `receiver_id`               |
+* | `network`         | non-`none`     | `_byte`, `sender_id`, `receiver_id`, `fcs`        |
 *
 * @par `#pragma pack(push, 1)`
 * Applied around all four specialisations. No compiler-inserted padding appears
@@ -61,6 +61,8 @@
 * - 2026-05-27 Initial creation; replaces packet_layout.hpp.
 *              Dropped redundant HasFcs parameter — specialise on ChecksumPolicy
 *              directly so `none` vs non-`none` is the dispatch axis.
+* - 2026-05-27 Replaced bool HasIds with topology — specialisation keys now match
+*              packet_header specialisation keys exactly.
 *              Moved FCS to the last field position (was between _byte and ids).
 *              Constructor bodies moved to header_layout.tpp per .hpp/.tpp rule.
 */
@@ -71,6 +73,7 @@
 
 #include "checksum.hpp"
 #include "node_ids.hpp"
+#include "topology.hpp"
 
 namespace ecomm::protocol::details {
 
@@ -80,18 +83,18 @@ namespace ecomm::protocol::details {
     * @brief Primary template — intentionally left undefined.
     *
     * Only the four explicit partial specialisations below are valid.
-    * Any other `<HasIds, ChecksumPolicy>` combination produces a compile error
+    * Any other `<Topology, ChecksumPolicy>` combination produces a compile error
     * rather than silently generating a wrong layout.
     *
-    * @tparam HasIds         `true` when `Topology == topology::network`.
-    *                         Adds `sender_id` and `receiver_id` between
-    *                         `_byte` and the trailing `fcs` (if any).
+    * @tparam Topology       Wire shape from `topology.hpp`. `point_to_point` →
+    *                         no node id fields; `network` → adds `sender_id` and
+    *                         `receiver_id` between `_byte` and the trailing `fcs`.
     * @tparam ChecksumPolicy Checksum tag from `checksum.hpp`.
     *                         `none` → no `fcs` field.
     *                         Any other policy → `fcs` field of type
     *                         `ChecksumPolicy::value_type` at the end of the struct.
     */
-    template<bool HasIds, typename ChecksumPolicy>
+    template<topology Topology, typename ChecksumPolicy>
     struct header_layout;
 
     #pragma pack(push, 1)
@@ -105,7 +108,7 @@ namespace ecomm::protocol::details {
     * @brief Minimal header: a single protocol byte, no FCS, no node ids.
     */
     template<>
-    struct header_layout<false, none> {
+    struct header_layout<topology::point_to_point, none> {
 
         /**
         * @brief Packed protocol byte.
@@ -140,9 +143,9 @@ namespace ecomm::protocol::details {
     * `validator::is_valid`.
     */
     template<typename ChecksumPolicy>
-    struct header_layout<false, ChecksumPolicy> {
+    struct header_layout<topology::point_to_point, ChecksumPolicy> {
 
-        /// @copydoc header_layout<false,none>::_byte
+        /// @copydoc header_layout<topology::point_to_point,none>::_byte
         std::uint8_t _byte{};
 
         /**
@@ -155,7 +158,7 @@ namespace ecomm::protocol::details {
 
     protected:
 
-        /// @copydoc header_layout<false,none>::header_layout(std::uint8_t)
+        /// @copydoc header_layout<topology::point_to_point,none>::header_layout(std::uint8_t)
         constexpr explicit header_layout(std::uint8_t b) noexcept;
 
         constexpr header_layout() noexcept = default;
@@ -173,9 +176,9 @@ namespace ecomm::protocol::details {
     * Both are public fields in `packet_header` via `using` re-export.
     */
     template<>
-    struct header_layout<true, none> {
+    struct header_layout<topology::network, none> {
 
-        /// @copydoc header_layout<false,none>::_byte
+        /// @copydoc header_layout<topology::point_to_point,none>::_byte
         std::uint8_t _byte{};
 
         /// Identifier of the node that originated this packet. Defaults to `ECOMM_BOARD_ID`.
@@ -186,7 +189,7 @@ namespace ecomm::protocol::details {
 
     protected:
 
-        /// @copydoc header_layout<false,none>::header_layout(std::uint8_t)
+        /// @copydoc header_layout<topology::point_to_point,none>::header_layout(std::uint8_t)
         constexpr explicit header_layout(std::uint8_t b) noexcept;
 
         constexpr header_layout() noexcept = default;
@@ -205,23 +208,23 @@ namespace ecomm::protocol::details {
     * last (`fcs`), consistent with the no-ids layout.
     */
     template<typename ChecksumPolicy>
-    struct header_layout<true, ChecksumPolicy> {
+    struct header_layout<topology::network, ChecksumPolicy> {
 
-        /// @copydoc header_layout<false,none>::_byte
+        /// @copydoc header_layout<topology::point_to_point,none>::_byte
         std::uint8_t _byte{};
 
-        /// @copydoc header_layout<true,none>::sender_id
+        /// @copydoc header_layout<topology::network,none>::sender_id
         std::uint8_t sender_id{ECOMM_BOARD_ID};
 
-        /// @copydoc header_layout<true,none>::receiver_id
+        /// @copydoc header_layout<topology::network,none>::receiver_id
         std::uint8_t receiver_id{};
 
-        /// @copydoc header_layout<false,ChecksumPolicy>::fcs
+        /// @copydoc header_layout<topology::point_to_point,ChecksumPolicy>::fcs
         typename ChecksumPolicy::value_type fcs{};
 
     protected:
 
-        /// @copydoc header_layout<false,none>::header_layout(std::uint8_t)
+        /// @copydoc header_layout<topology::point_to_point,none>::header_layout(std::uint8_t)
         constexpr explicit header_layout(std::uint8_t b) noexcept;
 
         constexpr header_layout() noexcept = default;

@@ -18,6 +18,7 @@
 *
 * @par Changelog
 * - 2026-05-27 Initial creation alongside header_layout.hpp.
+* - 2026-05-27 Updated specialisation keys: bool HasIds replaced by topology.
 */
 #ifndef ECOMM_PROTOCOL_HEADER_LAYOUT_TPP_
 #define ECOMM_PROTOCOL_HEADER_LAYOUT_TPP_
@@ -26,22 +27,30 @@
 
 namespace ecomm::protocol::details {
 
-    // Specialisation 1: <false, none>
-    constexpr header_layout<false, none>::header_layout(std::uint8_t b) noexcept
+    // Specialisation 1: <topology::point_to_point, none>
+    constexpr header_layout<topology::point_to_point, none>::header_layout(
+        std::uint8_t b
+    ) noexcept
         : _byte{b} {}
 
-    // Specialisation 2: <false, ChecksumPolicy>
+    // Specialisation 2: <topology::point_to_point, ChecksumPolicy>
     template<typename ChecksumPolicy>
-    constexpr header_layout<false, ChecksumPolicy>::header_layout(std::uint8_t b) noexcept
+    constexpr header_layout<topology::point_to_point, ChecksumPolicy>::header_layout(
+        std::uint8_t b
+    ) noexcept
         : _byte{b} {}
 
-    // Specialisation 3: <true, none>
-    constexpr header_layout<true, none>::header_layout(std::uint8_t b) noexcept
+    // Specialisation 3: <topology::network, none>
+    constexpr header_layout<topology::network, none>::header_layout(
+        std::uint8_t b
+    ) noexcept
         : _byte{b} {}
 
-    // Specialisation 4: <true, ChecksumPolicy>
+    // Specialisation 4: <topology::network, ChecksumPolicy>
     template<typename ChecksumPolicy>
-    constexpr header_layout<true, ChecksumPolicy>::header_layout(std::uint8_t b) noexcept
+    constexpr header_layout<topology::network, ChecksumPolicy>::header_layout(
+        std::uint8_t b
+    ) noexcept
         : _byte{b} {}
 
 } // namespace ecomm::protocol::details
