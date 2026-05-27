@@ -30,16 +30,16 @@ namespace ecomm::protocol {
 
     template<std::size_t PayloadSize>
     inline std::size_t error_envelope<PayloadSize>::write(
-        std::byte* payload_begin,
-        error_code code,
-        const char* message,
-        error_message_length_t length
+        std::byte*       payload_begin,
+        error_code       code,
+        std::string_view message
     ) noexcept {
-        assert(payload_begin != nullptr && "error_envelope::write: payload_begin is null");
-        assert(length <= max_message_length_in_payload &&
-               "error_envelope::write: length exceeds this packet's message capacity");
-        assert((length == 0 || message != nullptr) &&
-               "error_envelope::write: non-zero length with null message");
+        assert(payload_begin != nullptr &&
+               "error_envelope::write: payload_begin is null");
+        assert(message.size() <= max_message_length_in_payload &&
+               "error_envelope::write: message exceeds this packet's message capacity");
+
+        const auto length = static_cast<error_message_length_t>(message.size());
 
         std::byte* cursor = payload_begin;
 
@@ -47,16 +47,26 @@ namespace ecomm::protocol {
         std::memcpy(cursor, &code, sizeof(error_code));
         cursor += sizeof(error_code);
 
-        // length (width depends on ECOMM_MAX_ERROR_MESSAGE_LENGTH)
+        // length field (width driven by ECOMM_MAX_ERROR_MESSAGE_LENGTH)
         std::memcpy(cursor, &length, sizeof(error_message_length_t));
         cursor += sizeof(error_message_length_t);
 
-        // message body
+        // message body (empty string_view → no copy, zero-length field on wire)
         if (length != 0) {
-            std::memcpy(cursor, message, length);
+            std::memcpy(cursor, message.data(), length);
         }
 
         return prefix_size + length;
+    }
+
+    template<std::size_t PayloadSize>
+    inline std::size_t error_envelope<PayloadSize>::write(
+        std::byte* payload_begin,
+        error_code code
+    ) noexcept {
+        // Delegate to the string_view overload with an empty view — produces a
+        // valid, decodable envelope with a zero-length message field.
+        return write(payload_begin, code, std::string_view{});
     }
 
     template<typename Packet>
