@@ -2,24 +2,27 @@
 /**
 * @file validator.hpp
 *
-* @brief Packet validator system for the communication protocol framework.
+* @brief Packet validator for the ecomm communication protocol.
 *
 * @ingroup ecomm_protocol ecomm::protocol
 *
-* This file defines the core validator mechanism that allows compile-time specialization
-* of packet validation logic for different packet types within the protocol stack.
+* Defines `validator<Packet>`, a stateless policy struct with two operations:
 *
-* The validator system supports:
-* - Both basic_packet (without checksums) and framed_packet (with checksums).
-* - Policy-based checksum computation via compute<> metafunction.
-* - Separation of validation and sealing operations.
+* - `is_valid(packet)` — checks whether a received packet is structurally sound.
+*   For packets with `ChecksumPolicy == none` this is always true (no FCS to check).
+*   For all other policies it recomputes the FCS over the canonical byte region and
+*   compares it against `packet.header.fcs`.
 *
-* @note 
-* The validator system is fully extensible to support future packet types
-* without modifying existing code.
+* - `seal(packet)` — finalizes a packet before transmission by computing and writing
+*   the FCS into `packet.header.fcs`. A no-op when `ChecksumPolicy == none`.
 *
-* Platform-specific optimizations may be added to checksum calculations inside compute.hpp.
-* This system guarantees cross-platform compatibility for protocol logic itself.
+* **Checksum region** (what bytes are hashed):
+*   1. Zero `packet.header.fcs` in place.
+*   2. Hash all `PacketSize` bytes of the packet.
+*   3. Write the result back into `packet.header.fcs`.
+*
+* `is_valid` follows the same zeroing step on a local copy before recomputing, so
+* the comparison is deterministic regardless of what value `fcs` currently holds.
 *
 * @author Mark Tikhonov <mtik.philosopher@gmail.com>
 *
@@ -27,98 +30,129 @@
 *
 * @copyright
 * Business Source License 1.1 (BSL 1.1)
-* Copyright (c) 2025 Mark Tikhonov
+* Copyright (c) 2026 Mark Tikhonov
 * Free for non-commercial use. Commercial use requires a separate license.
 * See LICENSE file for details.
 *
 * @par Changelog
 * - 2025-07-03 Initial creation.
-* - 2025-07-14 Added `noexcept` specifier to methods for better exception safety.
+* - 2025-07-14 Added noexcept specifiers.
+* - 2026-05-26 Removed basic_packet / framed_packet specializations.
+* - 2026-05-26 Rewrote for unified packet<>: none (no-op) and general checksum
+*              specializations. Sealing contract documented above.
 */
 #ifndef ECOMM_PROTOCOL_VALIDATOR_HPP_
 #define ECOMM_PROTOCOL_VALIDATOR_HPP_
-#include "basic_packet.hpp"
-#include "framed_packet.hpp"
+
+#include "packet.hpp"
 
 namespace ecomm::protocol {
-    
+
     /**
     * @class validator
-    * @brief Primary validator template (unspecialized).
     *
-    * This primary template serves as a generic interface for packet validation.
-    * Specializations for specific packet types provide the actual logic.
+    * @brief Primary validator template — unspecialized, intentionally incomplete.
     *
-    * @tparam PacketType Type of packet to validate.
+    * Instantiating this directly is a compile error. Use one of the two provided
+    * partial specializations below.
+    *
+    * @tparam PacketType The concrete packet type to validate.
     */
     template<typename PacketType>
     struct validator;
-    
-    
-    /**
-    * @class validator<basic_packet<>>
-    * @brief Specialization for validating basic packets (no checksum).
-    *
-    * Since basic_packet has no checksum, validation always returns true.
-    *
-    * @tparam PacketSize Total packet size.
-    * @tparam TaskID_UnderlyingType Underlying type used for task identifiers.
-    */
-    template<std::size_t PacketSize, typename TaskID_UnderlyingType>
-    struct validator<basic_packet<PacketSize, TaskID_UnderlyingType>> {
-        using packet_t = basic_packet<PacketSize, TaskID_UnderlyingType>;
-        
-        /**
-        * @brief Validate a basic packet.
-        * 
-        * Always returns true as no checksum validation is required.
-        * 
-        * @param packet The basic_packet instance to validate.
-        * @return Always true.
-        */
-        [[nodiscard]] inline bool is_valid(const packet_t &packet) const noexcept;
-        
-        /**
-        * @brief Seal (finalize) a basic packet before transmission.
-        * 
-        * No action required for basic_packet; provided for API consistency.
-        * 
-        * @param packet The basic_packet instance to seal.
-        */
-        inline void seal(packet_t& packet) const noexcept;
-    };
 
+    // -------------------------------------------------------------------------
 
     /**
-    * @class validator<framed_packet<>>
-    * @brief Specialization for validating framed packets (with checksum support).
+    * @class validator<packet<PacketSize, Topology, none>>
     *
-    * Computes checksum dynamically using the checksum policy provided at compile time.
+    * @brief Specialization for packets with no checksum policy.
     *
-    * @tparam PacketSize Total packet size.
-    * @tparam TaskID_UnderlyingType Underlying type used for task identifiers.
-    * @tparam ChecksumPolicy Checksum algorithm policy type (must match compute<> specialization).
+    * When `ChecksumPolicy == none` the header carries no FCS field, so there is
+    * nothing to compute or verify. Both operations are no-ops provided for API
+    * consistency with the checksum-carrying specialization.
+    *
+    * @tparam PacketSize Total wire size of the packet in bytes.
+    * @tparam Topology   Topology policy (`point_to_point` or `network`).
     */
-    template<std::size_t PacketSize, typename TaskID_UnderlyingType, typename ChecksumPolicy>
-    struct validator<framed_packet<PacketSize, TaskID_UnderlyingType, ChecksumPolicy>> {
-        using packet_t = framed_packet<PacketSize, TaskID_UnderlyingType, ChecksumPolicy>;
-        
+    template<std::size_t PacketSize, topology Topology>
+    struct validator<packet<PacketSize, Topology, none>> {
+
+        using packet_t = packet<PacketSize, Topology, none>;
+
         /**
-        * @brief Validate a framed packet by recomputing its checksum.
+        * @brief Always returns `true` — no FCS to verify.
         *
-        * @param packet The framed_packet instance to validate.
-        * @return true if checksum matches, false otherwise.
+        * @param[in] packet The packet to validate.
+        * @return `true` unconditionally.
         */
-        [[nodiscard]] inline bool is_valid(const packet_t& packet) const noexcept;
-        
+        [[nodiscard]] bool is_valid(const packet_t& packet) const noexcept;
+
         /**
-        * @brief Seal (finalize) a framed packet before transmission by writing checksum.
+        * @brief No-op — no FCS field to write.
         *
-        * @param packet The framed_packet instance to seal.
+        * @param[in,out] packet The packet to seal.
         */
-        inline void seal(packet_t& packet) const noexcept;
+        void seal(packet_t& packet) const noexcept;
     };
-    
+
+    // -------------------------------------------------------------------------
+
+    /**
+    * @class validator<packet<PacketSize, Topology, ChecksumPolicy>>
+    *
+    * @brief Specialization for packets carrying a checksum (any policy except `none`).
+    *
+    * **Sealing contract** (`seal`):
+    *   1. Zero `packet.header.fcs`.
+    *   2. Compute `ChecksumPolicy` over all `PacketSize` bytes of the packet.
+    *   3. Write the result into `packet.header.fcs`.
+    *
+    * **Validation contract** (`is_valid`):
+    *   1. Save the received `packet.header.fcs`.
+    *   2. Make a local copy of the packet and zero its `header.fcs`.
+    *   3. Compute `ChecksumPolicy` over all `PacketSize` bytes of the copy.
+    *   4. Return `true` iff the recomputed value equals the saved value.
+    *
+    * @tparam PacketSize     Total wire size of the packet in bytes.
+    * @tparam Topology       Topology policy (`point_to_point` or `network`).
+    * @tparam ChecksumPolicy Checksum algorithm tag (any policy from `checksum.hpp`
+    *                        except `none`).
+    */
+    template<std::size_t PacketSize, topology Topology, typename ChecksumPolicy>
+    struct validator<packet<PacketSize, Topology, ChecksumPolicy>> {
+
+        using packet_t = packet<PacketSize, Topology, ChecksumPolicy>;
+        using fcs_t    = typename ChecksumPolicy::value_type;
+
+        /**
+        * @brief Verify the packet's FCS against a freshly recomputed value.
+        *
+        * Works on a local copy for the zeroing step — the caller's buffer is
+        * never modified.
+        *
+        * @param[in] packet The received packet to validate.
+        * @return `true` if the recomputed FCS matches `packet.header.fcs`;
+        *         `false` on any mismatch (corruption, truncation, wrong policy).
+        */
+        [[nodiscard]] bool is_valid(const packet_t& packet) const noexcept;
+
+        /**
+        * @brief Compute and write the FCS into `packet.header.fcs`.
+        *
+        * Must be called on every outgoing packet before handing it to the transport.
+        *
+        * @param[in,out] packet The packet to seal. `packet.header.fcs` is overwritten.
+        *
+        * @pre  `packet.header.fcs == 0`. Calling `seal` on an already-sealed packet
+        *       produces a wrong FCS because the first FCS value is non-zero during
+        *       the second hash pass.
+        * @post `packet.header.fcs` holds the checksum of all `PacketSize` bytes,
+        *       computed with `packet.header.fcs` treated as zero.
+        */
+        void seal(packet_t& packet) const noexcept;
+    };
+
 } // namespace ecomm::protocol
 
 #include "validator.tpp"

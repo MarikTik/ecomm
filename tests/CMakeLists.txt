@@ -20,3 +20,4 @@ endfunction()
 
 ecomm_add_test(test_packet_header protocol/test_packet_header.cpp)
 ecomm_add_test(test_packet        protocol/test_packet.cpp)
+ecomm_add_test(test_validator     protocol/test_validator.cpp)

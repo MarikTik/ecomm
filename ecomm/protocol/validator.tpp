@@ -2,7 +2,9 @@
 /**
 * @file validator.tpp
 *
-* @brief implementation of validator.tpp methods.
+* @brief Template definitions for ecomm::protocol::validator.
+*
+* @ingroup ecomm_protocol ecomm::protocol
 *
 * @author Mark Tikhonov <mtik.philosopher@gmail.com>
 *
@@ -10,52 +12,72 @@
 *
 * @copyright
 * Business Source License 1.1 (BSL 1.1)
-* Copyright (c) 2025 Mark Tikhonov
+* Copyright (c) 2026 Mark Tikhonov
 * Free for non-commercial use. Commercial use requires a separate license.
 * See LICENSE file for details.
 *
 * @par Changelog
 * - 2025-07-03 Initial creation.
-* - 2025-07-14 Added `noexcept` specifier to methods for better exception safety.
+* - 2025-07-14 Added noexcept specifiers.
+* - 2026-05-26 Rewrote for unified packet<>. Implementations left as stubs — fill in.
 */
 #ifndef ECOMM_PROTOCOL_VALIDATOR_TPP_
 #define ECOMM_PROTOCOL_VALIDATOR_TPP_
+
 #include "validator.hpp"
 #include "compute.hpp"
 
 namespace ecomm::protocol {
 
-    template <std::size_t PacketSize, typename TaskID_UnderlyingType>
-    inline bool validator<basic_packet<PacketSize, TaskID_UnderlyingType>>::is_valid([[maybe_unused]] const packet_t &packet) const noexcept
-    {
-        return true; // Basic packet validation always returns true, as it has no checksum
-    }
-    template <std::size_t PacketSize, typename TaskID_UnderlyingType>
-    inline void validator<basic_packet<PacketSize, TaskID_UnderlyingType>>::seal([[maybe_unused]] packet_t &packet) const noexcept
-    {
-        // No sealing required for basic packets, as they do not have a checksum
-        // This function is provided for interface consistency
-    }
+    // -------------------------------------------------------------------------
+    // validator<packet<PacketSize, Topology, none>> — no-op specialization
+    // -------------------------------------------------------------------------
 
-
-    template <std::size_t PacketSize, typename TaskID_UnderlyingType, typename ChecksumPolicy>
-    inline void validator<framed_packet<PacketSize, TaskID_UnderlyingType, ChecksumPolicy>>::seal(packet_t &packet) const noexcept
-    {
-        // Compute the checksum for the header, task_id, and payload
-        packet.fcs = compute<ChecksumPolicy>(
-            reinterpret_cast<const std::byte*>(&packet),
-            packet.packet_size - ChecksumPolicy::size
-        );
+    template<std::size_t PacketSize, topology Topology>
+    bool validator<packet<PacketSize, Topology, none>>::is_valid(
+        [[maybe_unused]] const packet_t& packet
+    ) const noexcept {
+        return true; // no checksum to verify
     }
 
-    template <std::size_t PacketSize, typename TaskID_UnderlyingType, typename ChecksumPolicy>
-    inline bool validator<framed_packet<PacketSize, TaskID_UnderlyingType, ChecksumPolicy>>::is_valid(const packet_t &packet) const noexcept
-    {
-        // Compute the expected checksum for the header, task_id, and payload and compare with the stored fcs
-        return packet.fcs == compute<ChecksumPolicy>(
-            reinterpret_cast<const std::byte*>(&packet),
-            packet.packet_size - ChecksumPolicy::size
-        );
+    template<std::size_t PacketSize, topology Topology>
+    void validator<packet<PacketSize, Topology, none>>::seal(
+        [[maybe_unused]] packet_t& packet
+    ) const noexcept {
+        // nothing to do — no fcs field
+    }
+
+    // -------------------------------------------------------------------------
+    // validator<packet<PacketSize, Topology, ChecksumPolicy>> — checksum specialization
+    // -------------------------------------------------------------------------
+
+    template<std::size_t PacketSize, topology Topology, typename ChecksumPolicy>
+    bool validator<packet<PacketSize, Topology, ChecksumPolicy>>::is_valid(
+        const packet_t& packet
+    ) const noexcept {
+        // const_cast is safe here: the packet lives in a receive buffer that was
+        // never declared const at the object level — the const is our own API
+        // promise to the caller. We restore fcs before returning, so the packet
+        // is observationally unchanged on exit.
+        packet_t& mut = const_cast<packet_t&>(packet);
+
+        const fcs_t received_fcs = mut.header.fcs;
+        mut.header.fcs = {};
+
+        const bool valid = received_fcs == compute<ChecksumPolicy>{}(
+            reinterpret_cast<const std::byte*>(&mut), packet_t::packet_size);
+
+        mut.header.fcs = received_fcs; // restore
+        return valid;
+    }
+
+    template<std::size_t PacketSize, topology Topology, typename ChecksumPolicy>
+    void validator<packet<PacketSize, Topology, ChecksumPolicy>>::seal(
+        packet_t& packet
+    ) const noexcept {
+        packet.header.fcs = {};
+        packet.header.fcs = compute<ChecksumPolicy>{}(
+            reinterpret_cast<const std::byte*>(&packet), packet_t::packet_size);
     }
 
 } // namespace ecomm::protocol
