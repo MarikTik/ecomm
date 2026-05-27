@@ -20,9 +20,12 @@
 *
 * Only one active `WiFiClient` is tracked at a time.
 *
-* @note Only compiled when a supported Wi-Fi library is detected.
+* @note Only compiled when `<WiFi.h>` is available on the target. On ESP32
+*       or ESP8266 prefer `esp_async_wifi_channel` instead — the synchronous
+*       `WiFiServer` API blocks the main loop waiting for clients and bytes.
 *
 * @see channel.hpp
+* @see esp_async_wifi_channel.hpp
 *
 * @author Mark Tikhonov <mtik.philosopher@gmail.com>
 *
@@ -37,20 +40,17 @@
 * @par Changelog
 * - 2026-05-26 Renamed from arduino_wifi_interface; Packet baked into type;
 *              `delegate_` → `do_`.
+* - 2026-05-26 Removed ESP8266/ESP32-specific includes; now uses __has_include(<WiFi.h>)
+*              only. ESP targets should use esp_async_wifi_channel instead.
 */
 #ifndef ECOMM_ARDUINO_WIFI_CHANNEL_HPP_
 #define ECOMM_ARDUINO_WIFI_CHANNEL_HPP_
 
-#if defined(ESP8266)
-    #include <ESP8266WiFi.h>
-#elif defined(ESP32)
+#if __has_include(<WiFi.h>)
     #include <WiFi.h>
-#elif __has_include(<WiFi.h>)
-    #include <WiFi.h>
-    #warning "Using first available WiFi library; compatibility with standard WiFiServer API is not guaranteed."
 #else
     #define ECOMM_NO_ARDUINO_WIFI_SUPPORT
-    #pragma message "No Arduino WiFi support detected. arduino_wifi_channel will not be compiled."
+    #pragma message "No <WiFi.h> found. arduino_wifi_channel will not be compiled."
 #endif
 
 #ifndef ECOMM_NO_ARDUINO_WIFI_SUPPORT
@@ -65,7 +65,7 @@ namespace ecomm::channels {
     /**
     * @class arduino_wifi_channel
     *
-    * @brief Wi-Fi TCP channel for Arduino platforms (ESP32, ESP8266).
+    * @brief Synchronous Wi-Fi TCP channel for Arduino boards with `<WiFi.h>`.
     *
     * Wraps a `WiFiServer` instance. On the first `do_try_receive` or `do_send`
     * call the channel accepts an incoming `WiFiClient` and reuses it for

@@ -11,9 +11,13 @@
 * validation (on receive) and sealing (on send) transparently.
 *
 * Concrete channels are conditionally compiled based on platform capabilities:
-* - `arduino_serial_channel` — UART via `HardwareSerial` (requires `ARDUINO`).
-* - `arduino_wifi_channel`   — TCP via `WiFiServer` (requires ESP32/ESP8266 or
-*                              a compatible `<WiFi.h>`).
+* - `arduino_serial_channel`    — UART via `HardwareSerial` (requires `ARDUINO`).
+* - `arduino_wifi_channel`      — Synchronous TCP via `WiFiServer` (requires a
+*                                 board with `<WiFi.h>`; suitable for non-ESP or
+*                                 low-throughput use cases).
+* - `esp_async_wifi_channel`    — Non-blocking TCP via AsyncTCP / ESPAsyncTCP
+*                                 (requires ESP32 or ESP8266). Preferred over
+*                                 `arduino_wifi_channel` on ESP targets.
 *
 * @see channel.hpp
 *
@@ -29,6 +33,7 @@
 *
 * @par Changelog
 * - 2026-05-26 Renamed from interfaces/interfaces.hpp.
+* - 2026-05-26 Added esp_async_wifi_channel for ESP32 / ESP8266.
 */
 #ifndef ECOMM_CHANNELS_HPP_
 #define ECOMM_CHANNELS_HPP_
@@ -41,6 +46,10 @@
 
 #if defined(ESP8266) || defined(ESP32) || __has_include(<WiFi.h>)
     #include "arduino_wifi_channel.hpp"
+#endif
+
+#if defined(ESP32) || defined(ESP8266)
+    #include "esp_async_wifi_channel.hpp"
 #endif
 
 #endif // ECOMM_CHANNELS_HPP_
