@@ -51,7 +51,7 @@ namespace ecomm::protocol {
     * ```
     *
     * @note These values are wire-stable. Never renumber or move an existing
-    *       enumerator — doing so would silently break backward compatibility
+    *       enumerator  --  doing so would silently break backward compatibility
     *       with any peer running an older firmware.
     *
     * @see header_options_mask for the bitmask that covers all option bits.

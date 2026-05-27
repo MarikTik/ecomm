@@ -23,39 +23,39 @@
 * ```
 * [TCP task / ISR]
 *     onData callback
-*         → accumulate into _staging (sizeof(Packet) bytes)
-*         → on complete packet: push into _queue (guarded by critical section)
+*         -> accumulate into _staging (sizeof(Packet) bytes)
+*         -> on complete packet: push into _queue (guarded by critical section)
 *
 * [main loop]
 *     try_receive(out)
-*         → pop from _queue (guarded by critical section)
-*         → validate via channel<> base
+*         -> pop from _queue (guarded by critical section)
+*         -> validate via channel<> base
 * ```
 *
 * @par Concurrency note
 * This channel is the *only* component in ecomm that requires synchronisation.
 * The need is platform-imposed: AsyncTCP delivers data on a task/ISR that runs
 * concurrently with user code. A minimal critical-section guard (platform-selected
-* at compile time) protects only the ring-queue head/tail update — the staging
+* at compile time) protects only the ring-queue head/tail update  --  the staging
 * buffer is touched exclusively from the callback and needs no lock.
 *
 * On ESP32 (dual-core): `taskENTER_CRITICAL` / `taskEXIT_CRITICAL` with a
-* `portMUX_TYPE` spinlock — safe across cores.
-* On ESP8266 (single-core): `noInterrupts()` / `interrupts()` — sufficient since
+* `portMUX_TYPE` spinlock  --  safe across cores.
+* On ESP8266 (single-core): `noInterrupts()` / `interrupts()`  --  sufficient since
 * the TCP callback fires from interrupt context, not a parallel core.
 *
 * @par No dynamic allocation
 * All storage is compile-time fixed:
-* - `_slots` — `std::array<Packet, QueueDepth>` ring buffer.
-* - `_staging` — `std::byte[sizeof(Packet)]` partial-packet accumulator.
+* - `_slots`  --  `std::array<Packet, QueueDepth>` ring buffer.
+* - `_staging`  --  `std::byte[sizeof(Packet)]` partial-packet accumulator.
 * Both live as class members; no heap allocation ever occurs in this channel.
 *
 * @par Platform guard
 * Compiled only when `ESP32` or `ESP8266` is defined. Include via the aggregator
-* `channels.hpp` or directly — the guard is self-contained.
+* `channels.hpp` or directly  --  the guard is self-contained.
 *
 * @see channel.hpp
-* @see arduino_wifi_channel.hpp — synchronous fallback for non-ESP Arduino boards.
+* @see arduino_wifi_channel.hpp  --  synchronous fallback for non-ESP Arduino boards.
 *
 * @author Mark Tikhonov <mtik.philosopher@gmail.com>
 *
@@ -100,7 +100,7 @@ namespace ecomm::channels {
     * @brief Non-blocking Wi-Fi channel for ESP32 / ESP8266 via AsyncTCP.
     *
     * Wraps an `AsyncServer` and maintains a fixed-depth ring queue of complete
-    * received packets. Call `try_receive` from your main loop — it returns
+    * received packets. Call `try_receive` from your main loop  --  it returns
     * immediately whether or not a packet is waiting. Incoming bytes are
     * accumulated in a staging buffer by the library's internal data callback and
     * promoted to the ring queue one packet at a time.
@@ -109,11 +109,11 @@ namespace ecomm::channels {
     * client connects while one is already active, the new connection is rejected.
     *
     * @tparam Packet     The fixed packet type this channel operates on. Must be
-    *                    trivially copyable — it is copied by value into the ring
+    *                    trivially copyable  --  it is copied by value into the ring
     *                    buffer and out of it.
     * @tparam QueueDepth Number of complete packets the ring buffer can hold.
     *                    Must be >= 2 (one slot is always kept empty to distinguish
-    *                    full from empty). A value of 2–4 is typical; increase only
+    *                    full from empty). A value of 2 - 4 is typical; increase only
     *                    if your packet rate can outpace your `try_receive` call rate.
     *
     * @warning `send` and `try_receive` must be called from the same execution
@@ -139,7 +139,7 @@ namespace ecomm::channels {
         * @brief Construct the channel and begin listening for connections.
         *
         * Registers `AsyncServer` callbacks immediately. The server starts
-        * accepting connections as soon as the Arduino WiFi stack is up — the
+        * accepting connections as soon as the Arduino WiFi stack is up  --  the
         * caller is responsible for calling `WiFi.begin(...)` and waiting for
         * connection before constructing this channel.
         *
@@ -160,7 +160,7 @@ namespace ecomm::channels {
         * @brief Write a sealed packet to the active client.
         *
         * Called by `channel::send` after the packet has been sealed. If no
-        * client is currently connected the packet is silently discarded — the
+        * client is currently connected the packet is silently discarded  --  the
         * caller observes this as a no-op send (same behaviour as
         * `arduino_wifi_channel` when no client is available).
         *
@@ -180,10 +180,10 @@ namespace ecomm::channels {
         * into `out` and the tail index is advanced.
         *
         * @param[out] out Destination packet. Written only on `true` return.
-        * @return `true`  — a complete packet was copied into `out`.
-        * @return `false` — the queue is empty; `out` is unchanged.
+        * @return `true`   --  a complete packet was copied into `out`.
+        * @return `false`  --  the queue is empty; `out` is unchanged.
         *
-        * @note On `false` return `out` is guaranteed unchanged — unlike the
+        * @note On `false` return `out` is guaranteed unchanged  --  unlike the
         *       synchronous channels which read before validating, this channel
         *       only writes `out` after the packet is already in the queue.
         */
@@ -208,7 +208,7 @@ namespace ecomm::channels {
         * Accumulates bytes into `_staging`. When `sizeof(Packet)` bytes have
         * been collected the complete packet is pushed into the ring queue.
         * Excess bytes beyond a packet boundary are carried over into the next
-        * accumulation cycle — this handles the case where the TCP layer
+        * accumulation cycle  --  this handles the case where the TCP layer
         * delivers multiple packets in a single callback.
         *
         * @param[in] data  Pointer to the received byte block.
@@ -237,10 +237,10 @@ namespace ecomm::channels {
         *
         * Called from `on_data` after a full packet has been accumulated.
         * Silently drops the packet if the queue is full (overflow policy:
-        * drop oldest-waiting, keep newest — matches the real-time workload
+        * drop oldest-waiting, keep newest  --  matches the real-time workload
         * where stale sensor data is worthless).
         *
-        * @note Guarded by the critical section — may run on TCP task / ISR.
+        * @note Guarded by the critical section  --  may run on TCP task / ISR.
         */
         void push_packet() noexcept;
 
@@ -294,7 +294,7 @@ namespace ecomm::channels {
         std::size_t _head = 0;    ///< Next write index (producer: TCP callback).
         std::size_t _tail = 0;    ///< Next read  index (consumer: try_receive).
 
-        /// Partial-packet accumulator — written exclusively from the data callback.
+        /// Partial-packet accumulator  --  written exclusively from the data callback.
         std::byte   _staging[sizeof(Packet)]{};
         std::size_t _staging_used = 0;
 

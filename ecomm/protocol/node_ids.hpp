@@ -2,7 +2,7 @@
 /**
 * @file node_ids.hpp
 *
-* @brief `node_ids` — sender and receiver node identifiers for network topology.
+* @brief `node_ids`  --  sender and receiver node identifiers for network topology.
 *
 * @ingroup ecomm_protocol ecomm::protocol
 *
@@ -26,7 +26,7 @@
 * See LICENSE file for details.
 *
 * @par Changelog
-* - 2026-05-27 Extracted from packet_header.hpp; renamed network_ids → node_ids.
+* - 2026-05-27 Extracted from packet_header.hpp; renamed network_ids -> node_ids.
 */
 #ifndef ECOMM_PROTOCOL_NODE_IDS_HPP_
 #define ECOMM_PROTOCOL_NODE_IDS_HPP_

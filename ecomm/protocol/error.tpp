@@ -51,7 +51,7 @@ namespace ecomm::protocol {
         std::memcpy(cursor, &length, sizeof(error_message_length_t));
         cursor += sizeof(error_message_length_t);
 
-        // message body (empty string_view → no copy, zero-length field on wire)
+        // message body (empty string_view -> no copy, zero-length field on wire)
         if (length != 0) {
             std::memcpy(cursor, message.data(), length);
         }
@@ -64,7 +64,7 @@ namespace ecomm::protocol {
         std::byte* payload_begin,
         error_code code
     ) noexcept {
-        // Delegate to the string_view overload with an empty view — produces a
+        // Delegate to the string_view overload with an empty view  --  produces a
         // valid, decodable envelope with a zero-length message field.
         return write(payload_begin, code, std::string_view{});
     }

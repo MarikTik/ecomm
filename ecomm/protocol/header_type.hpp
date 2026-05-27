@@ -2,7 +2,7 @@
 /**
 * @file header_type.hpp
 *
-* @brief `header_type` enumeration — top-level packet classification.
+* @brief `header_type` enumeration  --  top-level packet classification.
 *
 * @ingroup ecomm_protocol ecomm::protocol
 *
@@ -38,7 +38,7 @@ namespace ecomm::protocol {
     * encodings `0x6` and `0x7` are reserved for future packet kinds and must not
     * appear on the wire until assigned.
     *
-    * @note These values are wire-stable. Never renumber an existing enumerator —
+    * @note These values are wire-stable. Never renumber an existing enumerator  -- 
     *       doing so would silently break backward compatibility with any peer
     *       running an older firmware.
     */

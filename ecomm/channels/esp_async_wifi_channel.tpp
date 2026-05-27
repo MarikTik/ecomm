@@ -39,7 +39,7 @@ namespace ecomm::channels {
     {
         // Register the new-connection callback. AsyncTCP calls this on the TCP
         // task whenever a client completes the handshake. The lambda captures
-        // `this` by pointer — safe because the channel outlives the server in
+        // `this` by pointer  --  safe because the channel outlives the server in
         // any correct usage (see @pre in the header).
         _server.onClient(
             [](void* arg, AsyncClient* client) {
@@ -50,7 +50,7 @@ namespace ecomm::channels {
     }
 
     // -------------------------------------------------------------------------
-    // channel<> CRTP contract — called by the base send / try_receive
+    // channel<> CRTP contract  --  called by the base send / try_receive
     // -------------------------------------------------------------------------
 
     template<typename Packet, std::size_t QueueDepth>
@@ -96,7 +96,7 @@ namespace ecomm::channels {
         AsyncClient* client
     ) noexcept {
         if (_client) {
-            // Already have an active connection — reject the newcomer.
+            // Already have an active connection  --  reject the newcomer.
             client->close(true);
             return;
         }
@@ -138,7 +138,7 @@ namespace ecomm::channels {
             consumed      += to_copy;
 
             if (_staging_used == sizeof(Packet)) {
-                // A complete packet has been assembled — push it into the queue.
+                // A complete packet has been assembled  --  push it into the queue.
                 push_packet();
                 _staging_used = 0;
             }

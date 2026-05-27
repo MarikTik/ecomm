@@ -38,7 +38,7 @@
 namespace ecomm::protocol {
     /**
     * @struct compute
-    * @brief Primary template (unspecialized) — intentionally undefined.
+    * @brief Primary template (unspecialized)  --  intentionally undefined.
     * 
     * The compute struct template must be explicitly specialized for each supported 
     * checksum policy defined in `checksum.hpp`. It exposes a single `operator()` 

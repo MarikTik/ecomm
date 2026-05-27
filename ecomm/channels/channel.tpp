@@ -16,7 +16,7 @@
 *
 * @par Changelog
 * - 2026-05-26 Renamed from interfaces/interface.tpp; removed ETASK_BOARD_ID
-*              filtering; Packet baked into type; `delegate_` → `do_`.
+*              filtering; Packet baked into type; `delegate_` -> `do_`.
 */
 #ifndef ECOMM_CHANNELS_CHANNEL_TPP_
 #define ECOMM_CHANNELS_CHANNEL_TPP_

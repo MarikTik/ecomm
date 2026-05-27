@@ -8,12 +8,12 @@
 *
 * Defines `validator<Packet>`, a stateless policy struct with two operations:
 *
-* - `is_valid(packet)` — checks whether a received packet is structurally sound.
+* - `is_valid(packet)`  --  checks whether a received packet is structurally sound.
 *   For packets with `ChecksumPolicy == none` this is always true (no FCS to check).
 *   For all other policies it recomputes the FCS over the canonical byte region and
 *   compares it against `packet.header.fcs`.
 *
-* - `seal(packet)` — finalizes a packet before transmission by computing and writing
+* - `seal(packet)`  --  finalizes a packet before transmission by computing and writing
 *   the FCS into `packet.header.fcs`. A no-op when `ChecksumPolicy == none`.
 *
 * **Checksum region** (what bytes are hashed):
@@ -51,7 +51,7 @@ namespace ecomm::protocol {
     /**
     * @class validator
     *
-    * @brief Primary validator template — unspecialized, intentionally incomplete.
+    * @brief Primary validator template  --  unspecialized, intentionally incomplete.
     *
     * Instantiating this directly is a compile error. Use one of the two provided
     * partial specializations below.
@@ -81,7 +81,7 @@ namespace ecomm::protocol {
         using packet_t = packet<PacketSize, Topology, none>;
 
         /**
-        * @brief Always returns `true` — no FCS to verify.
+        * @brief Always returns `true`  --  no FCS to verify.
         *
         * @param[in] packet The packet to validate.
         * @return `true` unconditionally.
@@ -89,7 +89,7 @@ namespace ecomm::protocol {
         [[nodiscard]] bool is_valid(const packet_t& packet) const noexcept;
 
         /**
-        * @brief No-op — no FCS field to write.
+        * @brief No-op  --  no FCS field to write.
         *
         * @param[in,out] packet The packet to seal.
         */
@@ -128,7 +128,7 @@ namespace ecomm::protocol {
         /**
         * @brief Verify the packet's FCS against a freshly recomputed value.
         *
-        * Works on a local copy for the zeroing step — the caller's buffer is
+        * Works on a local copy for the zeroing step  --  the caller's buffer is
         * never modified.
         *
         * @param[in] packet The received packet to validate.

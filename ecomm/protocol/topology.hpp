@@ -7,7 +7,7 @@
 * @ingroup ecomm_protocol ecomm::protocol
 *
 * A device may participate in multiple links simultaneously, each with its own
-* communication shape — e.g. a UART leaf link that is strictly point-to-point and a
+* communication shape  --  e.g. a UART leaf link that is strictly point-to-point and a
 * WiFi link that is part of a multi-node mesh. Topology is therefore a per-instantiation
 * template parameter, not a build-wide flag: the same firmware can instantiate
 * `packet_header<topology::point_to_point, ...>` for the UART and

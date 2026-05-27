@@ -12,8 +12,8 @@
 *
 * Derived classes supply the hardware-specific byte transport by implementing
 * two methods:
-* - `do_send(const Packet&) noexcept` — write raw bytes to the physical medium.
-* - `do_try_receive(Packet&) noexcept → bool` — read raw bytes from the medium
+* - `do_send(const Packet&) noexcept`  --  write raw bytes to the physical medium.
+* - `do_try_receive(Packet&) noexcept -> bool`  --  read raw bytes from the medium
 *   into the supplied packet; return `true` if a complete packet was read.
 *
 * The base `channel` then composes validation (`validator<Packet>`) around those
@@ -22,13 +22,13 @@
 * @par Layering
 * ```
 * user code
-*     │  send(Packet&) / try_receive(Packet&)
-*     ▼
-* channel<Impl, Packet>          ← validates, seals; never allocates
-*     │  do_send / do_try_receive
-*     ▼
-* Impl (e.g. arduino_serial_channel)   ← raw bytes to/from hardware
-*     ▼
+*     |  send(Packet&) / try_receive(Packet&)
+*     v
+* channel<Impl, Packet>          <- validates, seals; never allocates
+*     |  do_send / do_try_receive
+*     v
+* Impl (e.g. arduino_serial_channel)   <- raw bytes to/from hardware
+*     v
 * hardware
 * ```
 *
@@ -96,8 +96,8 @@ namespace ecomm::channels {
         * @param[out] out Destination for the received packet. Only written on
         *                 success (`true` return).
         *
-        * @return `true`  — a valid packet was written into `out`.
-        * @return `false` — nothing available or packet failed validation.
+        * @return `true`   --  a valid packet was written into `out`.
+        * @return `false`  --  nothing available or packet failed validation.
         */
         [[nodiscard]] bool try_receive(Packet& out) noexcept;
 

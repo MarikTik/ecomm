@@ -60,7 +60,7 @@ namespace ecomm::protocol::details {
 
         // Word-bulk path: only safe when SumType is at least as wide as size_t.
         // Casting a size_t word to a narrower SumType silently drops the upper
-        // bytes, making each word contribute only its lowest byte to the sum —
+        // bytes, making each word contribute only its lowest byte to the sum  -- 
         // which breaks single-byte corruption detection for sum8/sum16 on 64-bit
         // hosts. Gate the optimisation on width equality.
         if constexpr (sizeof(SumType) >= sizeof(std::size_t)) {

@@ -8,7 +8,7 @@
 *
 * A `packet` is the fundamental unit of data on the wire: a `packet_header` followed
 * immediately by a raw payload region. Nothing else. Application-layer concepts such as
-* handler ids, task ids, and status codes are not part of the packet — they live in the
+* handler ids, task ids, and status codes are not part of the packet  --  they live in the
 * first bytes of the payload and are interpreted by the layer above.
 *
 * Wire layout:
@@ -22,12 +22,12 @@
 * ```
 *
 * The `packet_header` is templated on the same `<Topology, ChecksumPolicy>` policies,
-* so `sizeof(header)` — and therefore `payload_size` — is fully known at compile time.
+* so `sizeof(header)`  --  and therefore `payload_size`  --  is fully known at compile time.
 *
 * Two compile-time policies parameterize the layout (identical to `packet_header`):
-* - `Topology`       — `point_to_point` or `network`; drives whether `sender_id` /
+* - `Topology`        --  `point_to_point` or `network`; drives whether `sender_id` /
 *                      `receiver_id` occupy bytes in the header.
-* - `ChecksumPolicy` — checksum algorithm tag from `checksum.hpp`; drives the width of
+* - `ChecksumPolicy`  --  checksum algorithm tag from `checksum.hpp`; drives the width of
 *                      the FCS field inside the header. Use `none` for no checksum.
 *
 * @note `PacketSize` must be strictly greater than `sizeof(packet_header<Topology,
@@ -170,7 +170,7 @@ namespace ecomm::protocol {
         /// @brief Raw payload bytes. Interpreted entirely by the layer above.
         ///
         /// The application may overlay any structure on this region (handler id,
-        /// task id, error envelope, firmware chunk, …) by reading/writing through
+        /// task id, error envelope, firmware chunk, ...) by reading/writing through
         /// a pointer cast. The packet itself imposes no schema.
         std::byte payload[payload_size]{};
     };

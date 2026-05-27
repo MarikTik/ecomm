@@ -15,7 +15,7 @@
 * See LICENSE file for details.
 *
 * @par Changelog
-* - 2026-05-26 Renamed from arduino_serial_interface.tpp; `delegate_` → `do_`;
+* - 2026-05-26 Renamed from arduino_serial_interface.tpp; `delegate_` -> `do_`;
 *              fixed missing local variable in do_try_receive.
 */
 #ifndef ECOMM_ARDUINO_SERIAL_CHANNEL_TPP_

@@ -27,7 +27,7 @@
 *
 * @par Changelog
 * - 2026-05-26 Renamed from arduino_serial_interface; Packet baked into type;
-*              `delegate_` → `do_`.
+*              `delegate_` -> `do_`.
 */
 #ifndef ECOMM_ARDUINO_SERIAL_CHANNEL_HPP_
 #define ECOMM_ARDUINO_SERIAL_CHANNEL_HPP_
@@ -65,7 +65,7 @@ namespace ecomm::channels {
         * @brief Construct a serial channel bound to a hardware serial port.
         *
         * @param[in] serial Reference to the `HardwareSerial` object
-        *                   (`Serial`, `Serial1`, …) to use for communication.
+        *                   (`Serial`, `Serial1`, ...) to use for communication.
         */
         explicit arduino_serial_channel(HardwareSerial& serial) noexcept;
 

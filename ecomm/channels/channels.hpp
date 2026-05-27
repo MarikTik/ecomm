@@ -11,11 +11,11 @@
 * validation (on receive) and sealing (on send) transparently.
 *
 * Concrete channels are conditionally compiled based on platform capabilities:
-* - `arduino_serial_channel`    — UART via `HardwareSerial` (requires `ARDUINO`).
-* - `arduino_wifi_channel`      — Synchronous TCP via `WiFiServer` (requires a
+* - `arduino_serial_channel`     --  UART via `HardwareSerial` (requires `ARDUINO`).
+* - `arduino_wifi_channel`       --  Synchronous TCP via `WiFiServer` (requires a
 *                                 board with `<WiFi.h>`; suitable for non-ESP or
 *                                 low-throughput use cases).
-* - `esp_async_wifi_channel`    — Non-blocking TCP via AsyncTCP / ESPAsyncTCP
+* - `esp_async_wifi_channel`     --  Non-blocking TCP via AsyncTCP / ESPAsyncTCP
 *                                 (requires ESP32 or ESP8266). Preferred over
 *                                 `arduino_wifi_channel` on ESP targets.
 *

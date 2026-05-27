@@ -79,20 +79,20 @@ namespace ecomm::protocol {
     * @brief Protocol-level error identifiers carried in an error envelope.
     *
     * The top byte is a subsystem tag so host-side dispatch can fan out without a giant switch:
-    * - `0x00xx` — framing / packet structure
-    * - `0x01xx` — transport (serial, wifi, …)
-    * - `0x02xx` — dispatch / hub
-    * - `0x40xx`+ — reserved for user-defined application errors (see `user_range_begin`).
+    * - `0x00xx`  --  framing / packet structure
+    * - `0x01xx`  --  transport (serial, wifi, ...)
+    * - `0x02xx`  --  dispatch / hub
+    * - `0x40xx`+  --  reserved for user-defined application errors (see `user_range_begin`).
     *
     * Codes `0x0000` .. `0x3FFF` are reserved for the ecomm library itself. Codes
     * `0x4000` .. `0xFFFF` (`user_range_begin` and above) belong to the application
-    * consuming ecomm — assign them however you like.
+    * consuming ecomm  --  assign them however you like.
     *
     * @note Treat values as part of the wire protocol: once assigned, do not reuse or
     *       renumber across protocol versions.
     */
     enum class error_code : std::uint16_t {
-        // 0x00xx — framing / packet structure
+        // 0x00xx  --  framing / packet structure
         ok                       = 0x0000, ///< Sentinel for "no error"; should rarely appear on the wire.
         malformed_header         = 0x0001, ///< Header bits could not be parsed.
         checksum_mismatch        = 0x0002, ///< Recomputed FCS did not match the packet's FCS.
@@ -100,11 +100,11 @@ namespace ecomm::protocol {
         payload_too_small        = 0x0004, ///< Declared payload smaller than the envelope it claims to carry.
         malformed_error_envelope = 0x0005, ///< Returned via `as_error` when the envelope itself is corrupt.
 
-        // 0x01xx — transport
+        // 0x01xx  --  transport
         transport_timeout        = 0x0100, ///< Peer did not respond in the configured window.
         transport_disconnected   = 0x0101, ///< Underlying link reported a disconnect.
 
-        // 0x02xx — dispatch / hub
+        // 0x02xx  --  dispatch / hub
         unknown_handler_id       = 0x0200, ///< Received handler id has no registered handler.
         handler_not_registered   = 0x0201, ///< Handler removed or never installed for this id.
 
@@ -118,7 +118,7 @@ namespace ecomm::protocol {
     * @brief `true` iff `c` is in the user-defined range (>= `error_code::user_range_begin`).
     *
     * Use this to decide whether an incoming error code came from the ecomm library or
-    * from the application — useful for host-side routing.
+    * from the application  --  useful for host-side routing.
     */
     [[nodiscard]] constexpr bool is_user_error_code(error_code c) noexcept {
         return static_cast<std::uint16_t>(c) >=
@@ -131,9 +131,9 @@ namespace ecomm::protocol {
     *
     * Width is the smallest unsigned integer that can hold
     * `ECOMM_MAX_ERROR_MESSAGE_LENGTH`:
-    * - macro ≤ 255 → `std::uint8_t`
-    * - macro ≤ 65535 → `std::uint16_t` (default)
-    * - macro ≤ 4294967295 → `std::uint32_t`
+    * - macro <= 255 -> `std::uint8_t`
+    * - macro <= 65535 -> `std::uint16_t` (default)
+    * - macro <= 4294967295 -> `std::uint32_t`
     */
     using error_message_length_t =
         etools::meta::smallest_uint_t<ECOMM_MAX_ERROR_MESSAGE_LENGTH>;
@@ -144,7 +144,7 @@ namespace ecomm::protocol {
     * @brief Wire-format constants and writer for an error envelope sized to a specific
     *        packet payload.
     *
-    * This is a static, stateless helper — it carries the compile-time arithmetic for a
+    * This is a static, stateless helper  --  it carries the compile-time arithmetic for a
     * given payload size and exposes a single `write` operation. It is not a value type
     * and is not instantiated as an object.
     *
@@ -183,7 +183,7 @@ namespace ecomm::protocol {
         /**
         * @brief Write an error code with a human-readable message into the payload.
         *
-        * Wire layout: `[error_code (2B)] [length (1–4B)] [message bytes]`.
+        * Wire layout: `[error_code (2B)] [length (1 - 4B)] [message bytes]`.
         * The remainder of the payload beyond the written bytes is left untouched.
         *
         * For string literals the compiler deduces `std::string_view` at compile
@@ -259,7 +259,7 @@ namespace ecomm::protocol {
     * @pre `packet.header.has(header_options::error)`. Calling this on a packet that does not
     *      have the error flag set is a programmer error and is checked via `assert` in debug builds.
     *
-    * @see as_error_unchecked — same decoder, no header precondition.
+    * @see as_error_unchecked  --  same decoder, no header precondition.
     */
     template<typename Packet>
     [[nodiscard]] inline std::optional<error_view> as_error(const Packet& packet) noexcept;

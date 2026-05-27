@@ -35,17 +35,17 @@ namespace ecomm::protocol {
 // Common packing note (applies to every constructor below)
 // =============================================================================
 //
-// The protocol byte is packed using explicit shifts and masks — never C++
+// The protocol byte is packed using explicit shifts and masks  --  never C++
 // bitfields, whose layout is implementation-defined and therefore not safe
 // for wire protocols.
 //
-//   Bits 7..5 — type    : shift the 3-bit enumerator to the top position.
-//   Bits 4..2 — options : enumerator values are pre-shifted; stray bits masked.
-//   Bits 1..0 — version : 2-bit constant ECOMM_PROTOCOL_VERSION.
+//   Bits 7..5  --  type    : shift the 3-bit enumerator to the top position.
+//   Bits 4..2  --  options : enumerator values are pre-shifted; stray bits masked.
+//   Bits 1..0  --  version : 2-bit constant ECOMM_PROTOCOL_VERSION.
 //
 
 // =============================================================================
-// Specialisation 1 — point-to-point, no checksum
+// Specialisation 1  --  point-to-point, no checksum
 // =============================================================================
 
 constexpr
@@ -86,7 +86,7 @@ packet_header<topology::point_to_point, none>::raw() const noexcept {
 }
 
 // =============================================================================
-// Specialisation 2 — point-to-point, with checksum
+// Specialisation 2  --  point-to-point, with checksum
 // =============================================================================
 
 template<typename ChecksumPolicy>
@@ -133,7 +133,7 @@ packet_header<topology::point_to_point, ChecksumPolicy>::raw() const noexcept {
 }
 
 // =============================================================================
-// Specialisation 3 — network topology, no checksum
+// Specialisation 3  --  network topology, no checksum
 // =============================================================================
 
 constexpr
@@ -174,7 +174,7 @@ packet_header<topology::network, none>::raw() const noexcept {
 }
 
 // =============================================================================
-// Specialisation 4 — network topology, with checksum
+// Specialisation 4  --  network topology, with checksum
 // =============================================================================
 
 template<typename ChecksumPolicy>

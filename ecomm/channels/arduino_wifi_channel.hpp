@@ -21,7 +21,7 @@
 * Only one active `WiFiClient` is tracked at a time.
 *
 * @note Only compiled when `<WiFi.h>` is available on the target. On ESP32
-*       or ESP8266 prefer `esp_async_wifi_channel` instead — the synchronous
+*       or ESP8266 prefer `esp_async_wifi_channel` instead  --  the synchronous
 *       `WiFiServer` API blocks the main loop waiting for clients and bytes.
 *
 * @see channel.hpp
@@ -39,7 +39,7 @@
 *
 * @par Changelog
 * - 2026-05-26 Renamed from arduino_wifi_interface; Packet baked into type;
-*              `delegate_` → `do_`.
+*              `delegate_` -> `do_`.
 * - 2026-05-26 Removed ESP8266/ESP32-specific includes; now uses __has_include(<WiFi.h>)
 *              only. ESP targets should use esp_async_wifi_channel instead.
 */

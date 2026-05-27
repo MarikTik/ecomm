@@ -8,8 +8,8 @@
 *
 * `packet_header<Topology, ChecksumPolicy>` is the compile-time-parameterised
 * header that sits at the front of every ecomm packet. It carries every
-* protocol-level field — type, options, version, optional node ids, optional
-* FCS — and exposes them through typed accessors. Validation lives in
+* protocol-level field  --  type, options, version, optional node ids, optional
+* FCS  --  and exposes them through typed accessors. Validation lives in
 * `validator.hpp`.
 *
 * @par Standard-layout guarantee
@@ -21,7 +21,7 @@
 *
 * @par Encapsulation of the protocol byte
 * `packet_header` uses **private inheritance** from `details::header_layout`.
-* This hides the raw `_byte` field completely — callers can only reach it
+* This hides the raw `_byte` field completely  --  callers can only reach it
 * through the typed accessors `type()`, `options()`, `version()`, and `raw()`.
 * The user-visible fields `fcs`, `sender_id`, and `receiver_id` are promoted
 * with `using` declarations in each partial specialisation that carries them.
@@ -41,11 +41,11 @@
 *
 * @par Protocol byte layout
 * ```
-*  7..5 : type      (3 bits) — header_type enum, 6 values used (2 reserved)
-*     4 : error     (1 bit)  — header_options::error
-*     3 : ack       (1 bit)  — header_options::ack
-*     2 : encrypted (1 bit)  — header_options::encrypted
-*  1..0 : version   (2 bits) — internal, locked to ECOMM_PROTOCOL_VERSION
+*  7..5 : type      (3 bits)  --  header_type enum, 6 values used (2 reserved)
+*     4 : error     (1 bit)   --  header_options::error
+*     3 : ack       (1 bit)   --  header_options::ack
+*     2 : encrypted (1 bit)   --  header_options::encrypted
+*  1..0 : version   (2 bits)  --  internal, locked to ECOMM_PROTOCOL_VERSION
 * ```
 *
 * @note Version is not a constructor parameter. It is set automatically to
@@ -90,7 +90,7 @@ namespace ecomm::protocol {
     #pragma pack(push, 1)
 
     // =========================================================================
-    // Primary template — intentionally left undefined.
+    // Primary template  --  intentionally left undefined.
     //
     // Only the four partial specialisations below are valid instantiations.
     // Any unsupported <Topology, ChecksumPolicy> pair produces a compile error
@@ -103,7 +103,7 @@ namespace ecomm::protocol {
     * @brief Compact, standard-layout protocol header.
     *
     * Data-only type; logic is accessor-only. Validation lives in `validator.hpp`.
-    * Four partial specialisations cover the topology × checksum combinations.
+    * Four partial specialisations cover the topology x checksum combinations.
     *
     * @tparam Topology       Wire shape. `point_to_point` omits node ids;
     *                        `network` adds `sender_id` and `receiver_id`.
@@ -118,7 +118,7 @@ namespace ecomm::protocol {
     class packet_header;
 
     // =========================================================================
-    // Specialisation 1 — point-to-point, no checksum
+    // Specialisation 1  --  point-to-point, no checksum
     // Public surface: typed accessors only. No extra fields.
     // =========================================================================
 
@@ -136,7 +136,7 @@ namespace ecomm::protocol {
         /// @brief FCS field size. Always 0 for the `none` checksum policy.
         static constexpr std::size_t fcs_size = none::size;
 
-        /// @brief `false` — this specialisation carries no node ids.
+        /// @brief `false`  --  this specialisation carries no node ids.
         static constexpr bool has_node_ids = false;
 
         /**
@@ -179,7 +179,7 @@ namespace ecomm::protocol {
     };
 
     // =========================================================================
-    // Specialisation 2 — point-to-point, with checksum
+    // Specialisation 2  --  point-to-point, with checksum
     // Public surface: typed accessors + fcs.
     // =========================================================================
 
@@ -199,41 +199,58 @@ namespace ecomm::protocol {
         /// @brief FCS field size in bytes (`ChecksumPolicy::size`).
         static constexpr std::size_t fcs_size = ChecksumPolicy::size;
 
-        /// @brief `false` — this specialisation carries no node ids.
+        /// @brief `false`  --  this specialisation carries no node ids.
         static constexpr bool has_node_ids = false;
 
         /**
-        * @brief Frame check sequence — zero until `validator::seal` is called.
+        * @brief Frame check sequence  --  zero until `validator::seal` is called.
         *
         * This is the last field in the wire layout. Width is `fcs_size` bytes.
         * Written by `validator::seal`; checked by `validator::is_valid`.
         */
         using layout::fcs;
 
-        /// @copydoc packet_header<topology::point_to_point,none>::packet_header()
+        /**
+        * @brief Default constructor. Zero-initialises every field.
+        *
+        * @post `raw() == 0`. `type() == header_type::data`.
+        *       `options() == header_options::none`. `version() == 0`.
+        */
         constexpr packet_header() noexcept = default;
 
-        /// @copydoc packet_header<topology::point_to_point,none>::packet_header(header_type,header_options)
+        /**
+        * @brief Construct a wire-ready header with a given type and options.
+        *
+        * Packs `type` into bits 7..5, `opts` (masked to `header_options_mask`)
+        * into bits 4..2, and `ECOMM_PROTOCOL_VERSION` into bits 1..0.
+        *
+        * @param[in] type  Packet classification.
+        * @param[in] opts  OR-combination of `header_options` flags.
+        *
+        * @post `this->type() == type`. `has(opts)` is `true`.
+        *       `version() == ECOMM_PROTOCOL_VERSION`.
+        */
         constexpr packet_header(header_type type, header_options opts) noexcept;
 
-        /// @copydoc packet_header<topology::point_to_point,none>::type()
+        /// @brief Extract the packet type from bits 7..5.
         [[nodiscard]] constexpr header_type    type()    const noexcept;
 
-        /// @copydoc packet_header<topology::point_to_point,none>::options()
+        /// @brief Extract all option flags from bits 4..2.
+        /// @note Prefer `has(opt)` for single-flag tests.
         [[nodiscard]] constexpr header_options options() const noexcept;
 
-        /// @copydoc packet_header<topology::point_to_point,none>::has()
+        /// @brief Test whether every bit in `opt` is set.
         [[nodiscard]] constexpr bool           has(header_options opt) const noexcept;
 
-        /// @copydoc packet_header<topology::point_to_point,none>::version()
+        /// @brief Extract the protocol version from bits 1..0.
         [[nodiscard]] constexpr std::uint8_t   version() const noexcept;
 
-        /// @copydoc packet_header<topology::point_to_point,none>::raw()
+        /// @brief Return the raw protocol byte.
         [[nodiscard]] constexpr std::uint8_t   raw()     const noexcept;
     };
 
     // =========================================================================
-    // Specialisation 3 — network topology, no checksum
+    // Specialisation 3  --  network topology, no checksum
     // Public surface: typed accessors + sender_id + receiver_id.
     // =========================================================================
 
@@ -253,7 +270,7 @@ namespace ecomm::protocol {
         /// @brief FCS field size. Always 0 for the `none` checksum policy.
         static constexpr std::size_t fcs_size = none::size;
 
-        /// @brief `true` — this specialisation carries `sender_id` and `receiver_id`.
+        /// @brief `true`  --  this specialisation carries `sender_id` and `receiver_id`.
         static constexpr bool has_node_ids = true;
 
         /**
@@ -272,30 +289,47 @@ namespace ecomm::protocol {
         */
         using layout::receiver_id;
 
-        /// @copydoc packet_header<topology::point_to_point,none>::packet_header()
+        /**
+        * @brief Default constructor. Zero-initialises every field.
+        *
+        * @post `raw() == 0`. `type() == header_type::data`.
+        *       `options() == header_options::none`. `version() == 0`.
+        */
         constexpr packet_header() noexcept = default;
 
-        /// @copydoc packet_header<topology::point_to_point,none>::packet_header(header_type,header_options)
+        /**
+        * @brief Construct a wire-ready header with a given type and options.
+        *
+        * Packs `type` into bits 7..5, `opts` (masked to `header_options_mask`)
+        * into bits 4..2, and `ECOMM_PROTOCOL_VERSION` into bits 1..0.
+        *
+        * @param[in] type  Packet classification.
+        * @param[in] opts  OR-combination of `header_options` flags.
+        *
+        * @post `this->type() == type`. `has(opts)` is `true`.
+        *       `version() == ECOMM_PROTOCOL_VERSION`.
+        */
         constexpr packet_header(header_type type, header_options opts) noexcept;
 
-        /// @copydoc packet_header<topology::point_to_point,none>::type()
+        /// @brief Extract the packet type from bits 7..5.
         [[nodiscard]] constexpr header_type    type()    const noexcept;
 
-        /// @copydoc packet_header<topology::point_to_point,none>::options()
+        /// @brief Extract all option flags from bits 4..2.
+        /// @note Prefer `has(opt)` for single-flag tests.
         [[nodiscard]] constexpr header_options options() const noexcept;
 
-        /// @copydoc packet_header<topology::point_to_point,none>::has()
+        /// @brief Test whether every bit in `opt` is set.
         [[nodiscard]] constexpr bool           has(header_options opt) const noexcept;
 
-        /// @copydoc packet_header<topology::point_to_point,none>::version()
+        /// @brief Extract the protocol version from bits 1..0.
         [[nodiscard]] constexpr std::uint8_t   version() const noexcept;
 
-        /// @copydoc packet_header<topology::point_to_point,none>::raw()
+        /// @brief Return the raw protocol byte.
         [[nodiscard]] constexpr std::uint8_t   raw()     const noexcept;
     };
 
     // =========================================================================
-    // Specialisation 4 — network topology, with checksum
+    // Specialisation 4  --  network topology, with checksum
     // Public surface: typed accessors + sender_id + receiver_id + fcs.
     // =========================================================================
 
@@ -319,37 +353,69 @@ namespace ecomm::protocol {
         /// @brief FCS field size in bytes (`ChecksumPolicy::size`).
         static constexpr std::size_t fcs_size = ChecksumPolicy::size;
 
-        /// @brief `true` — this specialisation carries `sender_id` and `receiver_id`.
+        /// @brief `true`  --  this specialisation carries `sender_id` and `receiver_id`.
         static constexpr bool has_node_ids = true;
 
-        /// @copydoc packet_header<topology::network,none>::sender_id
+        /**
+        * @brief Identifier of the node that originated this packet.
+        *
+        * Defaults to `ECOMM_BOARD_ID` on construction. Set this before
+        * forwarding on behalf of another node.
+        */
         using layout::sender_id;
 
-        /// @copydoc packet_header<topology::network,none>::receiver_id
+        /**
+        * @brief Identifier of the intended recipient.
+        *
+        * Defaults to `0`. Caller must assign a valid node id before the packet
+        * is passed to a channel's `send()`.
+        */
         using layout::receiver_id;
 
-        /// @copydoc packet_header<topology::point_to_point,ChecksumPolicy>::fcs
+        /**
+        * @brief Frame check sequence -- zero until `validator::seal` is called.
+        *
+        * This is the last field in the wire layout. Width is `fcs_size` bytes.
+        * Written by `validator::seal`; checked by `validator::is_valid`.
+        */
         using layout::fcs;
 
-        /// @copydoc packet_header<topology::point_to_point,none>::packet_header()
+        /**
+        * @brief Default constructor. Zero-initialises every field.
+        *
+        * @post `raw() == 0`. `type() == header_type::data`.
+        *       `options() == header_options::none`. `version() == 0`.
+        */
         constexpr packet_header() noexcept = default;
 
-        /// @copydoc packet_header<topology::point_to_point,none>::packet_header(header_type,header_options)
+        /**
+        * @brief Construct a wire-ready header with a given type and options.
+        *
+        * Packs `type` into bits 7..5, `opts` (masked to `header_options_mask`)
+        * into bits 4..2, and `ECOMM_PROTOCOL_VERSION` into bits 1..0.
+        *
+        * @param[in] type  Packet classification.
+        * @param[in] opts  OR-combination of `header_options` flags.
+        *
+        * @post `this->type() == type`. `has(opts)` is `true`.
+        *       `version() == ECOMM_PROTOCOL_VERSION`.
+        */
         constexpr packet_header(header_type type, header_options opts) noexcept;
 
-        /// @copydoc packet_header<topology::point_to_point,none>::type()
+        /// @brief Extract the packet type from bits 7..5.
         [[nodiscard]] constexpr header_type    type()    const noexcept;
 
-        /// @copydoc packet_header<topology::point_to_point,none>::options()
+        /// @brief Extract all option flags from bits 4..2.
+        /// @note Prefer `has(opt)` for single-flag tests.
         [[nodiscard]] constexpr header_options options() const noexcept;
 
-        /// @copydoc packet_header<topology::point_to_point,none>::has()
+        /// @brief Test whether every bit in `opt` is set.
         [[nodiscard]] constexpr bool           has(header_options opt) const noexcept;
 
-        /// @copydoc packet_header<topology::point_to_point,none>::version()
+        /// @brief Extract the protocol version from bits 1..0.
         [[nodiscard]] constexpr std::uint8_t   version() const noexcept;
 
-        /// @copydoc packet_header<topology::point_to_point,none>::raw()
+        /// @brief Return the raw protocol byte.
         [[nodiscard]] constexpr std::uint8_t   raw()     const noexcept;
     };
 

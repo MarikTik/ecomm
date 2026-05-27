@@ -19,7 +19,7 @@
 * @par Changelog
 * - 2025-07-03 Initial creation.
 * - 2025-07-14 Added noexcept specifiers.
-* - 2026-05-26 Rewrote for unified packet<>. Implementations left as stubs — fill in.
+* - 2026-05-26 Rewrote for unified packet<>. Implementations left as stubs  --  fill in.
 */
 #ifndef ECOMM_PROTOCOL_VALIDATOR_TPP_
 #define ECOMM_PROTOCOL_VALIDATOR_TPP_
@@ -30,7 +30,7 @@
 namespace ecomm::protocol {
 
     // -------------------------------------------------------------------------
-    // validator<packet<PacketSize, Topology, none>> — no-op specialization
+    // validator<packet<PacketSize, Topology, none>>  --  no-op specialization
     // -------------------------------------------------------------------------
 
     template<std::size_t PacketSize, topology Topology>
@@ -44,11 +44,11 @@ namespace ecomm::protocol {
     void validator<packet<PacketSize, Topology, none>>::seal(
         [[maybe_unused]] packet_t& packet
     ) const noexcept {
-        // nothing to do — no fcs field
+        // nothing to do  --  no fcs field
     }
 
     // -------------------------------------------------------------------------
-    // validator<packet<PacketSize, Topology, ChecksumPolicy>> — checksum specialization
+    // validator<packet<PacketSize, Topology, ChecksumPolicy>>  --  checksum specialization
     // -------------------------------------------------------------------------
 
     template<std::size_t PacketSize, topology Topology, typename ChecksumPolicy>
@@ -56,7 +56,7 @@ namespace ecomm::protocol {
         const packet_t& packet
     ) const noexcept {
         // const_cast is safe here: the packet lives in a receive buffer that was
-        // never declared const at the object level — the const is our own API
+        // never declared const at the object level  --  the const is our own API
         // promise to the caller. We restore fcs before returning, so the packet
         // is observationally unchanged on exit.
         packet_t& mut = const_cast<packet_t&>(packet);
