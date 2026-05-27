@@ -25,8 +25,11 @@
 #include <cstddef>
 #include "compute.hpp"
 
-#ifdef ESP32
-#include "esp_crc.h" // ESP-IDF CRC functions
+// esp_crc.h is part of ESP-IDF (not the Arduino framework). Guard with
+// __has_include so the software fallback is used when building with the
+// Arduino toolchain or on a host test machine where IDF is absent.
+#if defined(ESP32) && __has_include("esp_crc.h")
+#include "esp_crc.h"
 #endif
 
 namespace ecomm::protocol::details {
@@ -137,7 +140,7 @@ namespace ecomm::protocol {
     
     inline crc8::value_type compute<crc8>::operator()(const std::byte* data, size_t size) const noexcept
     {
-        #ifdef ESP32
+        #if defined(ESP32) && __has_include("esp_crc.h")
         return esp_crc32_le(0, data, size);
         #else
         static constexpr uint8_t crc8_table[256] = {
@@ -180,7 +183,7 @@ namespace ecomm::protocol {
     
     inline crc16::value_type compute<crc16>::operator()(const std::byte* data, size_t size) const noexcept
     {
-        #ifdef ESP32
+        #if defined(ESP32) && __has_include("esp_crc.h")
         return esp_crc16_le(0, data, size);
         #else
         static constexpr uint16_t crc16_table[256] = {
@@ -224,7 +227,7 @@ namespace ecomm::protocol {
     
     inline crc32::value_type compute<crc32>::operator()(const std::byte* data, size_t size) const noexcept
     {
-        #ifdef ESP32
+        #if defined(ESP32) && __has_include("esp_crc.h")
         return esp_crc32_le(0, data, size);
         #else
         static constexpr uint32_t crc32_table[256] = {

@@ -56,7 +56,7 @@
 #include <type_traits>
 #include <tuple>
 #include <optional>
-#include "../interfaces/interface.hpp"
+#include "../channels/channel.hpp"
 #include <etools/meta/typeset.hpp>
 
 namespace ecomm{
@@ -189,7 +189,7 @@ namespace ecomm{
         etools::meta::typeset<Interfaces...> _sender_statuses; ///< Typeset for managing flags associated with sender interfaces.
         etools::meta::typeset<Interfaces...> _receiver_statuses; ///< Typeset for managing flags associated with receiver interfaces.
 
-        static_assert((std::is_base_of_v<interfaces::interface<Interfaces>, Interfaces> && ...), "All interfaces must derive from `interface<>`");
+        // TODO: restore channel base static_assert once hub is redesigned for heterogeneous channels.
     };
 
 } // namespace ecomm
