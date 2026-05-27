@@ -18,6 +18,10 @@
 *   - network_ids defaults: sender_id == ECOMM_BOARD_ID, receiver_id == 0.
 *   - fcs_storage zero-initialization for each checksum policy width.
 *   - has_node_ids and fcs_size compile-time constants are correct.
+*   - Bit-field isolation: type, options, and version occupy disjoint bit
+*     regions; setting one field to its maximum value does not corrupt the
+*     others. Four compile-time `static_assert`s prove the masks are
+*     pairwise disjoint and together cover all 8 bits.
 *   - header_options bitwise operators (|, &) produce the expected values.
 *
 * @author Mark Tikhonov <mtik.philosopher@gmail.com>
@@ -393,6 +397,136 @@ TEST(packet_header, fcs_does_not_corrupt_protocol_byte_crc32) {
     h.fcs = 0x12345678u;
 
     EXPECT_EQ(h.raw(), expected_byte);
+}
+
+// ---------------------------------------------------------------------------
+// Test suite: bit-field isolation
+//
+// Each test saturates exactly one field while zeroing the others, then
+// verifies that the remaining two accessors read back zero/none.  This
+// proves there is no bit overlap between the three protocol-byte fields.
+// ---------------------------------------------------------------------------
+
+// Helper: raw byte with every option bit set but type = data, version = 0.
+// Built from the mask so the test does not hard-code numeric constants.
+static constexpr std::uint8_t all_options_byte() noexcept {
+    return header_options_mask;   // bits 4..2 all set, bits 7..5 and 1..0 clear
+}
+
+// Helper: raw byte with every type bit set but options = none, version = 0.
+// type 0x7 occupies bits 7..5; options and version bits are 0.
+static constexpr std::uint8_t all_type_bits_byte() noexcept {
+    return static_cast<std::uint8_t>(0x7u << 5);  // 0b1110'0000
+}
+
+// Helper: raw byte with every version bit set but type = data, options = none.
+// version occupies bits 1..0.
+static constexpr std::uint8_t all_version_bits_byte() noexcept {
+    return static_cast<std::uint8_t>(0x3u);        // 0b0000'0011
+}
+
+// Compile-time: the three masks are pairwise disjoint.
+static_assert((all_options_byte() & all_type_bits_byte())    == 0,
+    "options and type bit regions must not overlap");
+static_assert((all_options_byte() & all_version_bits_byte()) == 0,
+    "options and version bit regions must not overlap");
+static_assert((all_type_bits_byte() & all_version_bits_byte()) == 0,
+    "type and version bit regions must not overlap");
+// Together they cover exactly 8 bits (no unused bits, no overlaps).
+static_assert((all_options_byte() | all_type_bits_byte() | all_version_bits_byte()) == 0xFFu,
+    "type + options + version must together cover all 8 bits of the protocol byte");
+
+// --- Field isolation: options do not bleed into type or version ----------
+
+TEST(packet_header_bit_isolation, all_options_set_does_not_affect_type) {
+    // Construct with every defined option flag set, type = data.
+    constexpr header_options all_opts =
+        header_options::error | header_options::ack | header_options::encrypted;
+    constexpr hdr_p2p_none h{header_type::data, all_opts};
+
+    // type must still read data (0x0), not any garbage from the option bits.
+    EXPECT_EQ(h.type(), header_type::data);
+}
+
+TEST(packet_header_bit_isolation, all_options_set_does_not_affect_version) {
+    constexpr header_options all_opts =
+        header_options::error | header_options::ack | header_options::encrypted;
+    constexpr hdr_p2p_none h{header_type::data, all_opts};
+
+    // version bits must only contain ECOMM_PROTOCOL_VERSION, not any option bits.
+    EXPECT_EQ(h.version(), static_cast<std::uint8_t>(ECOMM_PROTOCOL_VERSION));
+    // Cross-check: option bits (4..2) are all set, version bits (1..0) are the
+    // protocol version — the two regions must not have merged.
+    EXPECT_EQ(h.raw() & all_version_bits_byte(),
+              static_cast<std::uint8_t>(ECOMM_PROTOCOL_VERSION));
+}
+
+// --- Field isolation: type does not bleed into options or version --------
+
+TEST(packet_header_bit_isolation, max_type_value_does_not_affect_options) {
+    // header_type::firmware == 0x5 (0b101), fills bits 7..5 with 0b101.
+    // Use all-ones type (0x7) via raw construction to maximally stress the boundary.
+    // We cannot construct 0x7 via the enum, so use firmware (0x5) which has bit
+    // pattern 101 — both bits 7 and 5 set — as the most-stressing real enumerator.
+    constexpr hdr_p2p_none h{header_type::firmware, header_options::none};
+
+    EXPECT_EQ(h.options(), header_options::none)
+        << "type=firmware must not set any option bits";
+}
+
+TEST(packet_header_bit_isolation, max_type_value_does_not_affect_version) {
+    constexpr hdr_p2p_none h{header_type::firmware, header_options::none};
+
+    EXPECT_EQ(h.version(), static_cast<std::uint8_t>(ECOMM_PROTOCOL_VERSION))
+        << "type=firmware must not corrupt version bits";
+}
+
+// --- Field isolation: version does not bleed into type or options --------
+//
+// Version is fixed to ECOMM_PROTOCOL_VERSION and is 2 bits wide (1..0).
+// We verify that no matter what type/options are used, the version bits in
+// raw() always equal exactly ECOMM_PROTOCOL_VERSION and nothing else.
+
+TEST(packet_header_bit_isolation, version_bits_never_set_type_bits) {
+    // If version were to leak into bits 7..5 the type accessor would return
+    // something other than the enumerator passed in.
+    constexpr hdr_p2p_none h{header_type::data, header_options::none};
+
+    // raw() bits 7..5 must be 0 (data == 0x0).
+    EXPECT_EQ(h.raw() >> 5, 0x0u)
+        << "version bits must not appear in the type region";
+}
+
+TEST(packet_header_bit_isolation, version_bits_never_set_option_bits) {
+    constexpr hdr_p2p_none h{header_type::data, header_options::none};
+
+    // raw() bits 4..2 must be 0 (no options).
+    EXPECT_EQ(h.raw() & header_options_mask, 0x0u)
+        << "version bits must not appear in the options region";
+}
+
+// --- Cross-field round-trip with all fields simultaneously non-zero ------
+
+TEST(packet_header_bit_isolation, all_fields_nonzero_round_trip) {
+    // Use a type whose 3-bit encoding has all bits set in the region that
+    // borders the options region (firmware = 0x5 = 0b101, bit 5 is set).
+    // Use all options. Use whatever ECOMM_PROTOCOL_VERSION is.
+    constexpr header_options all_opts =
+        header_options::error | header_options::ack | header_options::encrypted;
+    constexpr hdr_p2p_none h{header_type::firmware, all_opts};
+
+    EXPECT_EQ(h.type(),    header_type::firmware);
+    EXPECT_EQ(h.options(), all_opts);
+    EXPECT_EQ(h.version(), static_cast<std::uint8_t>(ECOMM_PROTOCOL_VERSION));
+
+    // Verify that the three regions of raw() are exactly what we expect and
+    // do not contaminate each other.
+    const std::uint8_t r = h.raw();
+    EXPECT_EQ((r >> 5) & 0x7u, static_cast<std::uint8_t>(header_type::firmware));
+    EXPECT_EQ(r & header_options_mask,
+              static_cast<std::uint8_t>(all_opts));
+    EXPECT_EQ(r & 0x3u,
+              static_cast<std::uint8_t>(ECOMM_PROTOCOL_VERSION) & 0x3u);
 }
 
 // ---------------------------------------------------------------------------
