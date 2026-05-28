@@ -26,8 +26,8 @@
 
 namespace ecomm::protocol {
 
-    template<std::size_t PacketSize, topology Topology, typename ChecksumPolicy>
-    constexpr packet<PacketSize, Topology, ChecksumPolicy>::packet(
+    template<std::size_t PacketSize, topology Topology, typename SequencePolicy, typename ChecksumPolicy>
+    constexpr packet<PacketSize, Topology, SequencePolicy, ChecksumPolicy>::packet(
         header_type    type,
         header_options opts
     ) noexcept

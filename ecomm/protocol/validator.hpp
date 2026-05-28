@@ -64,7 +64,7 @@ namespace ecomm::protocol {
     // -------------------------------------------------------------------------
 
     /**
-    * @class validator<packet<PacketSize, Topology, none>>
+    * @class validator<packet<PacketSize, Topology, SequencePolicy, none>>
     *
     * @brief Specialization for packets with no checksum policy.
     *
@@ -72,13 +72,14 @@ namespace ecomm::protocol {
     * nothing to compute or verify. Both operations are no-ops provided for API
     * consistency with the checksum-carrying specialization.
     *
-    * @tparam PacketSize Total wire size of the packet in bytes.
-    * @tparam Topology   Topology policy (`point_to_point` or `network`).
+    * @tparam PacketSize     Total wire size of the packet in bytes.
+    * @tparam Topology       Topology policy (`point_to_point` or `network`).
+    * @tparam SequencePolicy Sequence policy (`no_sequence` or `sequenced`).
     */
-    template<std::size_t PacketSize, topology Topology>
-    struct validator<packet<PacketSize, Topology, none>> {
+    template<std::size_t PacketSize, topology Topology, typename SequencePolicy>
+    struct validator<packet<PacketSize, Topology, SequencePolicy, none>> {
 
-        using packet_t = packet<PacketSize, Topology, none>;
+        using packet_t = packet<PacketSize, Topology, SequencePolicy, none>;
 
         /**
         * @brief Always returns `true`  --  no FCS to verify.
@@ -99,7 +100,7 @@ namespace ecomm::protocol {
     // -------------------------------------------------------------------------
 
     /**
-    * @class validator<packet<PacketSize, Topology, ChecksumPolicy>>
+    * @class validator<packet<PacketSize, Topology, SequencePolicy, ChecksumPolicy>>
     *
     * @brief Specialization for packets carrying a checksum (any policy except `none`).
     *
@@ -116,13 +117,14 @@ namespace ecomm::protocol {
     *
     * @tparam PacketSize     Total wire size of the packet in bytes.
     * @tparam Topology       Topology policy (`point_to_point` or `network`).
+    * @tparam SequencePolicy Sequence policy (`no_sequence` or `sequenced`).
     * @tparam ChecksumPolicy Checksum algorithm tag (any policy from `checksum.hpp`
     *                        except `none`).
     */
-    template<std::size_t PacketSize, topology Topology, typename ChecksumPolicy>
-    struct validator<packet<PacketSize, Topology, ChecksumPolicy>> {
+    template<std::size_t PacketSize, topology Topology, typename SequencePolicy, typename ChecksumPolicy>
+    struct validator<packet<PacketSize, Topology, SequencePolicy, ChecksumPolicy>> {
 
-        using packet_t = packet<PacketSize, Topology, ChecksumPolicy>;
+        using packet_t = packet<PacketSize, Topology, SequencePolicy, ChecksumPolicy>;
         using fcs_t    = typename ChecksumPolicy::value_type;
 
         /**

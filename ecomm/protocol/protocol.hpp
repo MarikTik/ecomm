@@ -27,12 +27,14 @@
 * - 2026-05-26 Replaced basic_packet / framed_packet with unified packet.
 * - 2026-05-27 Added header_type.hpp, header_options.hpp, node_ids.hpp,
 *              header_layout.hpp (standard-layout refactor).
+* - 2026-05-27 Added sequence.hpp (SequencePolicy parameter).
 */
 #ifndef ECOMM_PROTOCOL_HPP_
 #define ECOMM_PROTOCOL_HPP_
 
 #include "config.hpp"
 #include "topology.hpp"
+#include "sequence.hpp"
 #include "checksum.hpp"
 #include "header_type.hpp"
 #include "header_options.hpp"

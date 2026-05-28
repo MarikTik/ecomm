@@ -33,26 +33,26 @@ namespace ecomm::protocol {
     // validator<packet<PacketSize, Topology, none>>  --  no-op specialization
     // -------------------------------------------------------------------------
 
-    template<std::size_t PacketSize, topology Topology>
-    bool validator<packet<PacketSize, Topology, none>>::is_valid(
+    template<std::size_t PacketSize, topology Topology, typename SequencePolicy>
+    bool validator<packet<PacketSize, Topology, SequencePolicy, none>>::is_valid(
         [[maybe_unused]] const packet_t& packet
     ) const noexcept {
         return true; // no checksum to verify
     }
 
-    template<std::size_t PacketSize, topology Topology>
-    void validator<packet<PacketSize, Topology, none>>::seal(
+    template<std::size_t PacketSize, topology Topology, typename SequencePolicy>
+    void validator<packet<PacketSize, Topology, SequencePolicy, none>>::seal(
         [[maybe_unused]] packet_t& packet
     ) const noexcept {
         // nothing to do  --  no fcs field
     }
 
     // -------------------------------------------------------------------------
-    // validator<packet<PacketSize, Topology, ChecksumPolicy>>  --  checksum specialization
+    // validator<packet<PacketSize, Topology, SequencePolicy, ChecksumPolicy>>  --  checksum specialization
     // -------------------------------------------------------------------------
 
-    template<std::size_t PacketSize, topology Topology, typename ChecksumPolicy>
-    bool validator<packet<PacketSize, Topology, ChecksumPolicy>>::is_valid(
+    template<std::size_t PacketSize, topology Topology, typename SequencePolicy, typename ChecksumPolicy>
+    bool validator<packet<PacketSize, Topology, SequencePolicy, ChecksumPolicy>>::is_valid(
         const packet_t& packet
     ) const noexcept {
         // const_cast is safe here: the packet lives in a receive buffer that was
@@ -71,8 +71,8 @@ namespace ecomm::protocol {
         return valid;
     }
 
-    template<std::size_t PacketSize, topology Topology, typename ChecksumPolicy>
-    void validator<packet<PacketSize, Topology, ChecksumPolicy>>::seal(
+    template<std::size_t PacketSize, topology Topology, typename SequencePolicy, typename ChecksumPolicy>
+    void validator<packet<PacketSize, Topology, SequencePolicy, ChecksumPolicy>>::seal(
         packet_t& packet
     ) const noexcept {
         packet.header.fcs = {};

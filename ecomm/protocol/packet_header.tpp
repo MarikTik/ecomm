@@ -23,6 +23,7 @@
 *              constructor delegates to the base.
 * - 2026-05-27 Private inheritance refactor: one definition block per
 *              specialisation; primary template is undefined.
+* - 2026-05-27 Added SequencePolicy parameter; eight definition blocks total.
 */
 #ifndef ECOMM_PROTOCOL_PACKET_HEADER_TPP_
 #define ECOMM_PROTOCOL_PACKET_HEADER_TPP_
@@ -45,178 +46,354 @@ namespace ecomm::protocol {
 //
 
 // =============================================================================
-// Specialisation 1  --  point-to-point, no checksum
+// Specialisation 1  --  point-to-point, no sequence, no checksum
 // =============================================================================
 
 constexpr
-packet_header<topology::point_to_point, none>::packet_header(
+packet_header<topology::point_to_point, no_sequence, none>::packet_header(
     header_type    type,
     header_options opts
 ) noexcept
     : layout{static_cast<std::uint8_t>(
-          ((static_cast<std::uint8_t>(type) & 0x7u) << 5)    |
-          (static_cast<std::uint8_t>(opts) & header_options_mask) |
+          ((static_cast<std::uint8_t>(type) & 0x7u) << 5)         |
+          (static_cast<std::uint8_t>(opts) & header_options_mask)  |
           (static_cast<std::uint8_t>(ECOMM_PROTOCOL_VERSION) & 0x3u)
       )}
 {}
 
 constexpr header_type
-packet_header<topology::point_to_point, none>::type() const noexcept {
+packet_header<topology::point_to_point, no_sequence, none>::type() const noexcept {
     return static_cast<header_type>((this->_byte >> 5) & 0x7u);
 }
 
 constexpr header_options
-packet_header<topology::point_to_point, none>::options() const noexcept {
+packet_header<topology::point_to_point, no_sequence, none>::options() const noexcept {
     return static_cast<header_options>(this->_byte & header_options_mask);
 }
 
 constexpr bool
-packet_header<topology::point_to_point, none>::has(header_options opt) const noexcept {
+packet_header<topology::point_to_point, no_sequence, none>::has(header_options opt) const noexcept {
     return (options() & opt) == opt;
 }
 
 constexpr std::uint8_t
-packet_header<topology::point_to_point, none>::version() const noexcept {
+packet_header<topology::point_to_point, no_sequence, none>::version() const noexcept {
     return static_cast<std::uint8_t>(this->_byte & 0x3u);
 }
 
 constexpr std::uint8_t
-packet_header<topology::point_to_point, none>::raw() const noexcept {
+packet_header<topology::point_to_point, no_sequence, none>::raw() const noexcept {
     return this->_byte;
 }
 
 // =============================================================================
-// Specialisation 2  --  point-to-point, with checksum
+// Specialisation 2  --  point-to-point, no sequence, with checksum
 // =============================================================================
 
 template<typename ChecksumPolicy>
 constexpr
-packet_header<topology::point_to_point, ChecksumPolicy>::packet_header(
+packet_header<topology::point_to_point, no_sequence, ChecksumPolicy>::packet_header(
     header_type    type,
     header_options opts
 ) noexcept
     : layout{static_cast<std::uint8_t>(
-          ((static_cast<std::uint8_t>(type) & 0x7u) << 5)    |
-          (static_cast<std::uint8_t>(opts) & header_options_mask) |
+          ((static_cast<std::uint8_t>(type) & 0x7u) << 5)         |
+          (static_cast<std::uint8_t>(opts) & header_options_mask)  |
           (static_cast<std::uint8_t>(ECOMM_PROTOCOL_VERSION) & 0x3u)
       )}
 {}
 
 template<typename ChecksumPolicy>
 constexpr header_type
-packet_header<topology::point_to_point, ChecksumPolicy>::type() const noexcept {
+packet_header<topology::point_to_point, no_sequence, ChecksumPolicy>::type() const noexcept {
     return static_cast<header_type>((this->_byte >> 5) & 0x7u);
 }
 
 template<typename ChecksumPolicy>
 constexpr header_options
-packet_header<topology::point_to_point, ChecksumPolicy>::options() const noexcept {
+packet_header<topology::point_to_point, no_sequence, ChecksumPolicy>::options() const noexcept {
     return static_cast<header_options>(this->_byte & header_options_mask);
 }
 
 template<typename ChecksumPolicy>
 constexpr bool
-packet_header<topology::point_to_point, ChecksumPolicy>::has(header_options opt) const noexcept {
+packet_header<topology::point_to_point, no_sequence, ChecksumPolicy>::has(header_options opt) const noexcept {
     return (options() & opt) == opt;
 }
 
 template<typename ChecksumPolicy>
 constexpr std::uint8_t
-packet_header<topology::point_to_point, ChecksumPolicy>::version() const noexcept {
+packet_header<topology::point_to_point, no_sequence, ChecksumPolicy>::version() const noexcept {
     return static_cast<std::uint8_t>(this->_byte & 0x3u);
 }
 
 template<typename ChecksumPolicy>
 constexpr std::uint8_t
-packet_header<topology::point_to_point, ChecksumPolicy>::raw() const noexcept {
+packet_header<topology::point_to_point, no_sequence, ChecksumPolicy>::raw() const noexcept {
     return this->_byte;
 }
 
 // =============================================================================
-// Specialisation 3  --  network topology, no checksum
+// Specialisation 3  --  point-to-point, sequenced, no checksum
 // =============================================================================
 
 constexpr
-packet_header<topology::network, none>::packet_header(
+packet_header<topology::point_to_point, sequenced, none>::packet_header(
     header_type    type,
     header_options opts
 ) noexcept
     : layout{static_cast<std::uint8_t>(
-          ((static_cast<std::uint8_t>(type) & 0x7u) << 5)    |
-          (static_cast<std::uint8_t>(opts) & header_options_mask) |
+          ((static_cast<std::uint8_t>(type) & 0x7u) << 5)         |
+          (static_cast<std::uint8_t>(opts) & header_options_mask)  |
           (static_cast<std::uint8_t>(ECOMM_PROTOCOL_VERSION) & 0x3u)
       )}
 {}
 
 constexpr header_type
-packet_header<topology::network, none>::type() const noexcept {
+packet_header<topology::point_to_point, sequenced, none>::type() const noexcept {
     return static_cast<header_type>((this->_byte >> 5) & 0x7u);
 }
 
 constexpr header_options
-packet_header<topology::network, none>::options() const noexcept {
+packet_header<topology::point_to_point, sequenced, none>::options() const noexcept {
     return static_cast<header_options>(this->_byte & header_options_mask);
 }
 
 constexpr bool
-packet_header<topology::network, none>::has(header_options opt) const noexcept {
+packet_header<topology::point_to_point, sequenced, none>::has(header_options opt) const noexcept {
     return (options() & opt) == opt;
 }
 
 constexpr std::uint8_t
-packet_header<topology::network, none>::version() const noexcept {
+packet_header<topology::point_to_point, sequenced, none>::version() const noexcept {
     return static_cast<std::uint8_t>(this->_byte & 0x3u);
 }
 
 constexpr std::uint8_t
-packet_header<topology::network, none>::raw() const noexcept {
+packet_header<topology::point_to_point, sequenced, none>::raw() const noexcept {
     return this->_byte;
 }
 
 // =============================================================================
-// Specialisation 4  --  network topology, with checksum
+// Specialisation 4  --  point-to-point, sequenced, with checksum
 // =============================================================================
 
 template<typename ChecksumPolicy>
 constexpr
-packet_header<topology::network, ChecksumPolicy>::packet_header(
+packet_header<topology::point_to_point, sequenced, ChecksumPolicy>::packet_header(
     header_type    type,
     header_options opts
 ) noexcept
     : layout{static_cast<std::uint8_t>(
-          ((static_cast<std::uint8_t>(type) & 0x7u) << 5)    |
-          (static_cast<std::uint8_t>(opts) & header_options_mask) |
+          ((static_cast<std::uint8_t>(type) & 0x7u) << 5)         |
+          (static_cast<std::uint8_t>(opts) & header_options_mask)  |
           (static_cast<std::uint8_t>(ECOMM_PROTOCOL_VERSION) & 0x3u)
       )}
 {}
 
 template<typename ChecksumPolicy>
 constexpr header_type
-packet_header<topology::network, ChecksumPolicy>::type() const noexcept {
+packet_header<topology::point_to_point, sequenced, ChecksumPolicy>::type() const noexcept {
     return static_cast<header_type>((this->_byte >> 5) & 0x7u);
 }
 
 template<typename ChecksumPolicy>
 constexpr header_options
-packet_header<topology::network, ChecksumPolicy>::options() const noexcept {
+packet_header<topology::point_to_point, sequenced, ChecksumPolicy>::options() const noexcept {
     return static_cast<header_options>(this->_byte & header_options_mask);
 }
 
 template<typename ChecksumPolicy>
 constexpr bool
-packet_header<topology::network, ChecksumPolicy>::has(header_options opt) const noexcept {
+packet_header<topology::point_to_point, sequenced, ChecksumPolicy>::has(header_options opt) const noexcept {
     return (options() & opt) == opt;
 }
 
 template<typename ChecksumPolicy>
 constexpr std::uint8_t
-packet_header<topology::network, ChecksumPolicy>::version() const noexcept {
+packet_header<topology::point_to_point, sequenced, ChecksumPolicy>::version() const noexcept {
     return static_cast<std::uint8_t>(this->_byte & 0x3u);
 }
 
 template<typename ChecksumPolicy>
 constexpr std::uint8_t
-packet_header<topology::network, ChecksumPolicy>::raw() const noexcept {
+packet_header<topology::point_to_point, sequenced, ChecksumPolicy>::raw() const noexcept {
+    return this->_byte;
+}
+
+// =============================================================================
+// Specialisation 5  --  network topology, no sequence, no checksum
+// =============================================================================
+
+constexpr
+packet_header<topology::network, no_sequence, none>::packet_header(
+    header_type    type,
+    header_options opts
+) noexcept
+    : layout{static_cast<std::uint8_t>(
+          ((static_cast<std::uint8_t>(type) & 0x7u) << 5)         |
+          (static_cast<std::uint8_t>(opts) & header_options_mask)  |
+          (static_cast<std::uint8_t>(ECOMM_PROTOCOL_VERSION) & 0x3u)
+      )}
+{}
+
+constexpr header_type
+packet_header<topology::network, no_sequence, none>::type() const noexcept {
+    return static_cast<header_type>((this->_byte >> 5) & 0x7u);
+}
+
+constexpr header_options
+packet_header<topology::network, no_sequence, none>::options() const noexcept {
+    return static_cast<header_options>(this->_byte & header_options_mask);
+}
+
+constexpr bool
+packet_header<topology::network, no_sequence, none>::has(header_options opt) const noexcept {
+    return (options() & opt) == opt;
+}
+
+constexpr std::uint8_t
+packet_header<topology::network, no_sequence, none>::version() const noexcept {
+    return static_cast<std::uint8_t>(this->_byte & 0x3u);
+}
+
+constexpr std::uint8_t
+packet_header<topology::network, no_sequence, none>::raw() const noexcept {
+    return this->_byte;
+}
+
+// =============================================================================
+// Specialisation 6  --  network topology, no sequence, with checksum
+// =============================================================================
+
+template<typename ChecksumPolicy>
+constexpr
+packet_header<topology::network, no_sequence, ChecksumPolicy>::packet_header(
+    header_type    type,
+    header_options opts
+) noexcept
+    : layout{static_cast<std::uint8_t>(
+          ((static_cast<std::uint8_t>(type) & 0x7u) << 5)         |
+          (static_cast<std::uint8_t>(opts) & header_options_mask)  |
+          (static_cast<std::uint8_t>(ECOMM_PROTOCOL_VERSION) & 0x3u)
+      )}
+{}
+
+template<typename ChecksumPolicy>
+constexpr header_type
+packet_header<topology::network, no_sequence, ChecksumPolicy>::type() const noexcept {
+    return static_cast<header_type>((this->_byte >> 5) & 0x7u);
+}
+
+template<typename ChecksumPolicy>
+constexpr header_options
+packet_header<topology::network, no_sequence, ChecksumPolicy>::options() const noexcept {
+    return static_cast<header_options>(this->_byte & header_options_mask);
+}
+
+template<typename ChecksumPolicy>
+constexpr bool
+packet_header<topology::network, no_sequence, ChecksumPolicy>::has(header_options opt) const noexcept {
+    return (options() & opt) == opt;
+}
+
+template<typename ChecksumPolicy>
+constexpr std::uint8_t
+packet_header<topology::network, no_sequence, ChecksumPolicy>::version() const noexcept {
+    return static_cast<std::uint8_t>(this->_byte & 0x3u);
+}
+
+template<typename ChecksumPolicy>
+constexpr std::uint8_t
+packet_header<topology::network, no_sequence, ChecksumPolicy>::raw() const noexcept {
+    return this->_byte;
+}
+
+// =============================================================================
+// Specialisation 7  --  network topology, sequenced, no checksum
+// =============================================================================
+
+constexpr
+packet_header<topology::network, sequenced, none>::packet_header(
+    header_type    type,
+    header_options opts
+) noexcept
+    : layout{static_cast<std::uint8_t>(
+          ((static_cast<std::uint8_t>(type) & 0x7u) << 5)         |
+          (static_cast<std::uint8_t>(opts) & header_options_mask)  |
+          (static_cast<std::uint8_t>(ECOMM_PROTOCOL_VERSION) & 0x3u)
+      )}
+{}
+
+constexpr header_type
+packet_header<topology::network, sequenced, none>::type() const noexcept {
+    return static_cast<header_type>((this->_byte >> 5) & 0x7u);
+}
+
+constexpr header_options
+packet_header<topology::network, sequenced, none>::options() const noexcept {
+    return static_cast<header_options>(this->_byte & header_options_mask);
+}
+
+constexpr bool
+packet_header<topology::network, sequenced, none>::has(header_options opt) const noexcept {
+    return (options() & opt) == opt;
+}
+
+constexpr std::uint8_t
+packet_header<topology::network, sequenced, none>::version() const noexcept {
+    return static_cast<std::uint8_t>(this->_byte & 0x3u);
+}
+
+constexpr std::uint8_t
+packet_header<topology::network, sequenced, none>::raw() const noexcept {
+    return this->_byte;
+}
+
+// =============================================================================
+// Specialisation 8  --  network topology, sequenced, with checksum
+// =============================================================================
+
+template<typename ChecksumPolicy>
+constexpr
+packet_header<topology::network, sequenced, ChecksumPolicy>::packet_header(
+    header_type    type,
+    header_options opts
+) noexcept
+    : layout{static_cast<std::uint8_t>(
+          ((static_cast<std::uint8_t>(type) & 0x7u) << 5)         |
+          (static_cast<std::uint8_t>(opts) & header_options_mask)  |
+          (static_cast<std::uint8_t>(ECOMM_PROTOCOL_VERSION) & 0x3u)
+      )}
+{}
+
+template<typename ChecksumPolicy>
+constexpr header_type
+packet_header<topology::network, sequenced, ChecksumPolicy>::type() const noexcept {
+    return static_cast<header_type>((this->_byte >> 5) & 0x7u);
+}
+
+template<typename ChecksumPolicy>
+constexpr header_options
+packet_header<topology::network, sequenced, ChecksumPolicy>::options() const noexcept {
+    return static_cast<header_options>(this->_byte & header_options_mask);
+}
+
+template<typename ChecksumPolicy>
+constexpr bool
+packet_header<topology::network, sequenced, ChecksumPolicy>::has(header_options opt) const noexcept {
+    return (options() & opt) == opt;
+}
+
+template<typename ChecksumPolicy>
+constexpr std::uint8_t
+packet_header<topology::network, sequenced, ChecksumPolicy>::version() const noexcept {
+    return static_cast<std::uint8_t>(this->_byte & 0x3u);
+}
+
+template<typename ChecksumPolicy>
+constexpr std::uint8_t
+packet_header<topology::network, sequenced, ChecksumPolicy>::raw() const noexcept {
     return this->_byte;
 }
 

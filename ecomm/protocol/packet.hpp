@@ -15,24 +15,29 @@
 * ```
 * +----------------------------------------------+-------------------------------+
 * |              packet_header                   |    payload (PacketSize        |
-* |  [proto(1B)] [ids(*)] [fcs($)]               |       - sizeof(header) bytes) |
+* |  [proto(1B)] [seq(*s)] [ids(*n)] [fcs($)]    |       - sizeof(header) bytes) |
 * +----------------------------------------------+-------------------------------+
-* (*) sender_id + receiver_id present only when Topology == network (2 bytes)
-* ($) fcs field present only when ChecksumPolicy != none (ChecksumPolicy::size bytes)
+* (*s) seq_num present only when SequencePolicy == sequenced (1 byte)
+* (*n) sender_id + receiver_id present only when Topology == network (2 bytes)
+* ($)  fcs field present only when ChecksumPolicy != none (ChecksumPolicy::size bytes)
 * ```
 *
-* The `packet_header` is templated on the same `<Topology, ChecksumPolicy>` policies,
-* so `sizeof(header)`  --  and therefore `payload_size`  --  is fully known at compile time.
+* The `packet_header` is templated on the same `<Topology, SequencePolicy,
+* ChecksumPolicy>` policies, so `sizeof(header)`  --  and therefore `payload_size`  --
+* is fully known at compile time.
 *
-* Two compile-time policies parameterize the layout (identical to `packet_header`):
+* Three compile-time policies parameterize the layout (identical to `packet_header`):
 * - `Topology`        --  `point_to_point` or `network`; drives whether `sender_id` /
 *                      `receiver_id` occupy bytes in the header.
+* - `SequencePolicy`  --  sequence tag from `sequence.hpp`; `sequenced` adds a one-byte
+*                      `seq_num` immediately after the protocol byte. Use `no_sequence`
+*                      for unreliable channels.
 * - `ChecksumPolicy`  --  checksum algorithm tag from `checksum.hpp`; drives the width of
 *                      the FCS field inside the header. Use `none` for no checksum.
 *
 * @note `PacketSize` must be strictly greater than `sizeof(packet_header<Topology,
-*       ChecksumPolicy>)` so that at least one payload byte exists.  A `static_assert`
-*       enforces this at instantiation.
+*       SequencePolicy, ChecksumPolicy>)` so that at least one payload byte exists.
+*       A `static_assert` enforces this at instantiation.
 *
 * @note Word-alignment of `PacketSize` is enforced via `static_assert`. On the
 *       Arduino/ESP target, DMA and serial drivers typically require word-aligned buffers;
@@ -80,6 +85,9 @@ namespace ecomm::protocol {
     * @tparam Topology       Wire shape passed through to `packet_header`. Selects whether
     *                        `sender_id` / `receiver_id` bytes are present in the header.
     *                        Defaults to `default_topology` (from `config.hpp`).
+    * @tparam SequencePolicy Sequence tag passed through to `packet_header`. `sequenced`
+    *                        adds a one-byte `seq_num` field after the protocol byte;
+    *                        `no_sequence` adds nothing. Defaults to `no_sequence`.
     * @tparam ChecksumPolicy Checksum algorithm tag passed through to `packet_header`.
     *                        Controls the FCS field width inside the header. Use `none`
     *                        for no checksum.  Defaults to `none`.
@@ -87,6 +95,7 @@ namespace ecomm::protocol {
     template<
         std::size_t  PacketSize     = 32,
         topology     Topology       = default_topology,
+        typename     SequencePolicy = no_sequence,
         typename     ChecksumPolicy = none
     >
     struct packet {
@@ -96,7 +105,7 @@ namespace ecomm::protocol {
         // -----------------------------------------------------------------
 
         /// @brief The concrete `packet_header` type for this packet instantiation.
-        using header_t = packet_header<Topology, ChecksumPolicy>;
+        using header_t = packet_header<Topology, SequencePolicy, ChecksumPolicy>;
 
         // -----------------------------------------------------------------
         // Compile-time constants
@@ -126,7 +135,8 @@ namespace ecomm::protocol {
             PacketSize > sizeof(header_t),
             "packet: PacketSize must be strictly greater than sizeof(packet_header) "
             "so that at least one payload byte exists. "
-            "Increase PacketSize or choose a smaller header configuration."
+            "Increase PacketSize or choose a smaller header configuration "
+            "(fewer fields: no SequencePolicy, no ChecksumPolicy, or no node ids)."
         );
 
         // -----------------------------------------------------------------

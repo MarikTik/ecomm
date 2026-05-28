@@ -19,6 +19,7 @@
 * @par Changelog
 * - 2026-05-27 Initial creation alongside header_layout.hpp.
 * - 2026-05-27 Updated specialisation keys: bool HasIds replaced by topology.
+* - 2026-05-27 Added SequencePolicy parameter; eight specialisations total.
 */
 #ifndef ECOMM_PROTOCOL_HEADER_LAYOUT_TPP_
 #define ECOMM_PROTOCOL_HEADER_LAYOUT_TPP_
@@ -27,28 +28,54 @@
 
 namespace ecomm::protocol::details {
 
-    // Specialisation 1: <topology::point_to_point, none>
-    constexpr header_layout<topology::point_to_point, none>::header_layout(
+    // Specialisation 1: <topology::point_to_point, no_sequence, none>
+    constexpr header_layout<topology::point_to_point, no_sequence, none>::header_layout(
         std::uint8_t b
     ) noexcept
         : _byte{b} {}
 
-    // Specialisation 2: <topology::point_to_point, ChecksumPolicy>
+    // Specialisation 2: <topology::point_to_point, no_sequence, ChecksumPolicy>
     template<typename ChecksumPolicy>
-    constexpr header_layout<topology::point_to_point, ChecksumPolicy>::header_layout(
+    constexpr header_layout<topology::point_to_point, no_sequence, ChecksumPolicy>::header_layout(
         std::uint8_t b
     ) noexcept
         : _byte{b} {}
 
-    // Specialisation 3: <topology::network, none>
-    constexpr header_layout<topology::network, none>::header_layout(
+    // Specialisation 3: <topology::point_to_point, sequenced, none>
+    constexpr header_layout<topology::point_to_point, sequenced, none>::header_layout(
         std::uint8_t b
     ) noexcept
         : _byte{b} {}
 
-    // Specialisation 4: <topology::network, ChecksumPolicy>
+    // Specialisation 4: <topology::point_to_point, sequenced, ChecksumPolicy>
     template<typename ChecksumPolicy>
-    constexpr header_layout<topology::network, ChecksumPolicy>::header_layout(
+    constexpr header_layout<topology::point_to_point, sequenced, ChecksumPolicy>::header_layout(
+        std::uint8_t b
+    ) noexcept
+        : _byte{b} {}
+
+    // Specialisation 5: <topology::network, no_sequence, none>
+    constexpr header_layout<topology::network, no_sequence, none>::header_layout(
+        std::uint8_t b
+    ) noexcept
+        : _byte{b} {}
+
+    // Specialisation 6: <topology::network, no_sequence, ChecksumPolicy>
+    template<typename ChecksumPolicy>
+    constexpr header_layout<topology::network, no_sequence, ChecksumPolicy>::header_layout(
+        std::uint8_t b
+    ) noexcept
+        : _byte{b} {}
+
+    // Specialisation 7: <topology::network, sequenced, none>
+    constexpr header_layout<topology::network, sequenced, none>::header_layout(
+        std::uint8_t b
+    ) noexcept
+        : _byte{b} {}
+
+    // Specialisation 8: <topology::network, sequenced, ChecksumPolicy>
+    template<typename ChecksumPolicy>
+    constexpr header_layout<topology::network, sequenced, ChecksumPolicy>::header_layout(
         std::uint8_t b
     ) noexcept
         : _byte{b} {}
