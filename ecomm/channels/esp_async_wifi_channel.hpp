@@ -183,9 +183,12 @@ namespace ecomm::channels {
         * @return `true`   --  a complete packet was copied into `out`.
         * @return `false`  --  the queue is empty; `out` is unchanged.
         *
-        * @note On `false` return `out` is guaranteed unchanged  --  unlike the
-        *       synchronous channels which read before validating, this channel
-        *       only writes `out` after the packet is already in the queue.
+        * @note The `memcpy` from `_slots[_tail]` is intentionally performed
+        *       outside the critical section. `_tail` is the exclusive domain of
+        *       the main task (only `do_try_receive` advances it), and the
+        *       producer only writes to `_slots[_head]`. Since `_head != _tail`
+        *       was verified under lock before the copy, the slot at `_tail` is
+        *       guaranteed stable for the duration of the copy.
         */
         bool do_try_receive(Packet& out) noexcept;
 

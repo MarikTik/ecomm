@@ -377,10 +377,181 @@ TEST_F(fixture, second_client_data_does_not_reach_queue) {
     AsyncClient client2;
     server.simulate_connect(&client2);
 
-    // Even if the closed client somehow delivers data, it should not
-    // reach the channel's queue (the data callback is never registered).
     const test_packet pkt = make_sealed();
     client2.simulate_data(&pkt, sizeof(test_packet));
 
     EXPECT_FALSE(ch.try_receive().has_value());
+}
+
+// ---------------------------------------------------------------------------
+// Disconnect -- queued packets still available
+// ---------------------------------------------------------------------------
+
+TEST_F(fixture, queued_packets_still_available_after_disconnect) {
+    const test_packet pkt = make_sealed();
+    inject(client, pkt);
+    client.simulate_disconnect();
+
+    const auto result = ch.try_receive();
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(std::memcmp(&result.value(), &pkt, sizeof(test_packet)), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Disconnect -- staging reset: last byte of previous connection must not
+// bleed into a packet from the new connection
+// ---------------------------------------------------------------------------
+
+TEST_F(fixture, staging_reset_prevents_bleed_across_connections) {
+    const test_packet pkt_a = make_sealed(header_type::data);
+    const test_packet pkt_b = make_sealed(header_type::control);
+
+    // Deliver sizeof(Packet)-1 bytes of pkt_a: one byte short of a complete packet.
+    client.simulate_data(&pkt_a, sizeof(test_packet) - 1);
+    client.simulate_disconnect();
+
+    // Reconnect and deliver a full fresh packet.
+    AsyncClient client2;
+    server.simulate_connect(&client2);
+    inject(client2, pkt_b);
+
+    const auto result = ch.try_receive();
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(std::memcmp(&result.value(), &pkt_b, sizeof(test_packet)), 0);
+
+    EXPECT_FALSE(ch.try_receive().has_value());
+}
+
+// ---------------------------------------------------------------------------
+// send after disconnect -- no crash, no bytes written
+// ---------------------------------------------------------------------------
+
+TEST_F(fixture, send_after_disconnect_does_not_crash) {
+    client.simulate_disconnect();
+
+    test_packet pkt{header_type::data, header_options::none};
+    EXPECT_EQ(ch.send(pkt), send_result::ok);
+    EXPECT_EQ(client.tx.size(), 0u);
+}
+
+// ---------------------------------------------------------------------------
+// Fragmentation edge cases
+// ---------------------------------------------------------------------------
+
+TEST_F(fixture, try_receive_reassembles_last_byte_separate) {
+    const test_packet pkt = make_sealed();
+    const auto* raw = reinterpret_cast<const std::byte*>(&pkt);
+
+    client.simulate_data(raw, sizeof(test_packet) - 1);
+    EXPECT_FALSE(ch.try_receive().has_value());
+
+    client.simulate_data(raw + sizeof(test_packet) - 1, 1);
+    const auto result = ch.try_receive();
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(std::memcmp(&result.value(), &pkt, sizeof(test_packet)), 0);
+}
+
+TEST_F(fixture, try_receive_handles_three_packets_in_one_delivery) {
+    const test_packet pkt_a = make_sealed(header_type::data);
+    const test_packet pkt_b = make_sealed(header_type::control);
+    const test_packet pkt_c = make_sealed(header_type::data);
+
+    std::vector<std::byte> buf(3 * sizeof(test_packet));
+    std::memcpy(buf.data(),                          &pkt_a, sizeof(test_packet));
+    std::memcpy(buf.data() +     sizeof(test_packet), &pkt_b, sizeof(test_packet));
+    std::memcpy(buf.data() + 2 * sizeof(test_packet), &pkt_c, sizeof(test_packet));
+
+    client.simulate_data(buf.data(), buf.size());
+
+    const auto ra = ch.try_receive();
+    const auto rb = ch.try_receive();
+    const auto rc = ch.try_receive();
+
+    ASSERT_TRUE(ra.has_value());
+    ASSERT_TRUE(rb.has_value());
+    ASSERT_TRUE(rc.has_value());
+    EXPECT_EQ(std::memcmp(&ra.value(), &pkt_a, sizeof(test_packet)), 0);
+    EXPECT_EQ(std::memcmp(&rb.value(), &pkt_b, sizeof(test_packet)), 0);
+    EXPECT_EQ(std::memcmp(&rc.value(), &pkt_c, sizeof(test_packet)), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Ring queue -- boundary conditions
+// ---------------------------------------------------------------------------
+
+TEST(esp_async_wifi_channel_queue, drain_after_filling_to_capacity) {
+    // QueueDepth=3 => 2 usable slots. Fill, drain, verify empty.
+    using small_channel = esp_async_wifi_channel<test_packet, 3>;
+
+    AsyncServer   server;
+    AsyncClient   client;
+    small_channel ch{server};
+    server.simulate_connect(&client);
+
+    const test_packet pkt_a = make_sealed(header_type::data);
+    const test_packet pkt_b = make_sealed(header_type::control);
+
+    inject(client, pkt_a);
+    inject(client, pkt_b);
+
+    EXPECT_TRUE(ch.try_receive().has_value());
+    EXPECT_TRUE(ch.try_receive().has_value());
+    EXPECT_FALSE(ch.try_receive().has_value());
+}
+
+TEST(esp_async_wifi_channel_queue, coalesced_delivery_that_fills_queue_drops_excess) {
+    // QueueDepth=3 => 2 usable slots. Deliver 3 packets coalesced -- third dropped.
+    using small_channel = esp_async_wifi_channel<test_packet, 3>;
+
+    AsyncServer   server;
+    AsyncClient   client;
+    small_channel ch{server};
+    server.simulate_connect(&client);
+
+    const test_packet pkt_a = make_sealed(header_type::data);
+    const test_packet pkt_b = make_sealed(header_type::control);
+    const test_packet pkt_c = make_sealed(header_type::data);
+
+    std::vector<std::byte> buf(3 * sizeof(test_packet));
+    std::memcpy(buf.data(),                          &pkt_a, sizeof(test_packet));
+    std::memcpy(buf.data() +     sizeof(test_packet), &pkt_b, sizeof(test_packet));
+    std::memcpy(buf.data() + 2 * sizeof(test_packet), &pkt_c, sizeof(test_packet));
+
+    client.simulate_data(buf.data(), buf.size());
+
+    const auto ra = ch.try_receive();
+    const auto rb = ch.try_receive();
+
+    ASSERT_TRUE(ra.has_value());
+    ASSERT_TRUE(rb.has_value());
+    EXPECT_EQ(std::memcmp(&ra.value(), &pkt_a, sizeof(test_packet)), 0);
+    EXPECT_EQ(std::memcmp(&rb.value(), &pkt_b, sizeof(test_packet)), 0);
+    EXPECT_FALSE(ch.try_receive().has_value());
+}
+
+TEST(esp_async_wifi_channel_queue, queue_recovers_after_overflow_and_drain) {
+    // Fill queue, drain, then verify new packets are accepted normally.
+    using small_channel = esp_async_wifi_channel<test_packet, 3>;
+
+    AsyncServer   server;
+    AsyncClient   client;
+    small_channel ch{server};
+    server.simulate_connect(&client);
+
+    const test_packet filler = make_sealed(header_type::data);
+    inject(client, filler);
+    inject(client, filler);
+    inject(client, filler);   // dropped -- queue full
+
+    // Drain.
+    EXPECT_TRUE(ch.try_receive().has_value());
+    EXPECT_TRUE(ch.try_receive().has_value());
+    EXPECT_FALSE(ch.try_receive().has_value());
+
+    // Now inject again -- should be accepted.
+    const test_packet fresh = make_sealed(header_type::control);
+    inject(client, fresh);
+    const auto result = ch.try_receive();
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(std::memcmp(&result.value(), &fresh, sizeof(test_packet)), 0);
 }
