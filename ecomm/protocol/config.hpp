@@ -31,21 +31,33 @@
 *        message in an error envelope. Default is 65535 (uint16_t max).
 *      - Added `ECOMM_DEFAULT_TOPOLOGY` to select the default network topology used as
 *        the template default for `packet_header` and `packet`. Default is point-to-point.
+* - 2026-05-28
+*      - `ECOMM_BOARD_ID` default changed from 0 to 1. 0 is now reserved for
+*        "unassigned / no sender". 255 is the broadcast address.
 */
 #ifndef ECOMM_PROTOCOL_CONFIG_HPP_
 #define ECOMM_PROTOCOL_CONFIG_HPP_
 
-#define ECOMM_PROTOCOL_VERSION 0 ///< Protocol Verson. Currently set to 0.
+#define ECOMM_PROTOCOL_VERSION 0 ///< Protocol version. Currently set to 0.
 static_assert(ECOMM_PROTOCOL_VERSION >= 0 and ECOMM_PROTOCOL_VERSION < 4, "ECOMM_PROTOCOL_VERSION must be in range [0, 3]");
 
+// Address convention (network topology):
+//   0        -- reserved / unassigned ("no sender").
+//   1..254   -- unicast board identities. ECOMM_BOARD_ID must be in this range.
+//   255      -- broadcast address; a hub or sender uses this as receiver_id to
+//               address all nodes simultaneously.
 #ifndef ECOMM_BOARD_ID
-#define ECOMM_BOARD_ID 0 ///< Default board ID, can be overridden by customizing the value before header inclusion.
+#define ECOMM_BOARD_ID 1 ///< Unique ID of this board. Override via compiler flag (-DECOMM_BOARD_ID=N). Valid range: 1-254. 0 = unassigned, 255 = broadcast.
 #endif // ECOMM_BOARD_ID
+static_assert(ECOMM_BOARD_ID >= 1 and ECOMM_BOARD_ID <= 254,
+    "ECOMM_BOARD_ID must be in range [1, 254]. "
+    "0 is reserved (unassigned) and 255 is the broadcast address.");
 
 #ifndef ECOMM_DEVICE_N
-#define ECOMM_DEVICE_N 2 ///< Default number of devices in the system (set to 2), can be overridden by customizing the value before header inclusion.
+#define ECOMM_DEVICE_N 2 ///< Number of unicast devices in the system (excludes the broadcast address). Default 2. Valid range: 1-254.
 #endif // ECOMM_DEVICE_N
-static_assert(ECOMM_DEVICE_N > 0 and ECOMM_DEVICE_N < 256, "ECOMM_DEVICE_N must be in range [1, 255]");
+static_assert(ECOMM_DEVICE_N > 0 and ECOMM_DEVICE_N < 255,
+    "ECOMM_DEVICE_N must be in range [1, 254] (255 is the broadcast address).");
 
 #ifndef ECOMM_MAX_ERROR_MESSAGE_LENGTH
 #define ECOMM_MAX_ERROR_MESSAGE_LENGTH 65535 ///< Maximum length of an error-envelope message in bytes. Defaults to 65535 (equivalent to std::numeric_limits<uint16_t>::max()). Override before including ecomm headers to shrink the on-wire length field (e.g. setting it to 255 makes the length field a single uint8_t).
