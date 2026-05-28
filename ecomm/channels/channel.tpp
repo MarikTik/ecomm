@@ -21,6 +21,8 @@
 *              filtering; Packet baked into type; `delegate_` -> `do_`.
 * - 2026-05-27 send() now returns send_result::ok (was void).
 *              try_receive() now returns std::optional<Packet> (was bool + out-param).
+* - 2026-05-28 try_receive() filters on receiver_id for network-topology packets:
+*              accepts ECOMM_BOARD_ID (unicast) and 255 (broadcast); drops others.
 */
 #ifndef ECOMM_CHANNELS_CHANNEL_TPP_
 #define ECOMM_CHANNELS_CHANNEL_TPP_
@@ -41,6 +43,19 @@ namespace ecomm::channels {
         Packet out{};
         if (!static_cast<Impl*>(this)->do_try_receive(out)) return std::nullopt;
         if (!_validator.is_valid(out))                      return std::nullopt;
+
+        // Address filtering for network-topology packets.
+        // Point-to-point packets carry no node IDs; the check is compiled away.
+        if constexpr (Packet::header_t::has_node_ids) {
+            constexpr auto broadcast = static_cast<std::uint8_t>(0xFFu);
+            const auto     dest      = out.header.receiver_id;
+            if (dest != static_cast<std::uint8_t>(ECOMM_BOARD_ID) &&
+                dest != broadcast)
+            {
+                return std::nullopt;
+            }
+        }
+
         return out;
     }
 
