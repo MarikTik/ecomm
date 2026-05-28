@@ -93,6 +93,10 @@ using namespace ecomm::channels;
 // Sequenced p2p with crc32 -- the typical reliable_channel packet.
 using seq_packet = packet<32, topology::point_to_point, sequenced, crc32>;
 
+// Network-topology packet (carries sender_id / receiver_id) -- used to test
+// the receiver_id filter in channel<>::try_receive.
+using net_packet = packet<32, topology::network, no_sequence, crc32>;
+
 // Non-sequenced -- used only to verify the static_assert fires if someone
 // tries to instantiate reliable_channel with a wrong packet.
 // (We do not instantiate reliable_channel<..., noseq_packet, ...> in this
@@ -669,4 +673,96 @@ TEST(rc_staging, buffer_depth_2_fifo_order) {
     // FIFO: first staged packet comes out first.
     EXPECT_EQ(r1->header.seq_num, 0u);
     EXPECT_EQ(r2->header.seq_num, 1u);
+}
+
+// ---------------------------------------------------------------------------
+// channel<> address filter -- network topology
+//
+// channel::try_receive drops packets whose receiver_id is neither
+// ECOMM_BOARD_ID nor 0xFF (broadcast). Point-to-point packets carry no node
+// IDs so the check is compiled away entirely for them; these tests exercise
+// the network-topology path using a raw channel<mock_impl, net_packet>.
+// ---------------------------------------------------------------------------
+
+// Net mock: same wire-state pointer pattern, but typed for net_packet.
+template<typename Packet>
+struct net_mock_impl : channel<net_mock_impl<Packet>, Packet> {
+    explicit net_mock_impl(wire_state* w) noexcept : _wire{w} {}
+
+    void do_send(const Packet& pkt) noexcept {
+        const auto* raw = reinterpret_cast<const std::byte*>(&pkt);
+        for (std::size_t i = 0; i < sizeof(Packet); ++i)
+            _wire->tx.push_back(raw[i]);
+    }
+
+    bool do_try_receive(Packet& out) noexcept {
+        if (_wire->rx.size() < sizeof(Packet)) return false;
+        auto* raw = reinterpret_cast<std::byte*>(&out);
+        for (std::size_t i = 0; i < sizeof(Packet); ++i) {
+            raw[i] = _wire->rx.front();
+            _wire->rx.pop_front();
+        }
+        return true;
+    }
+
+    wire_state* _wire;
+};
+
+using net_impl    = net_mock_impl<net_packet>;
+using net_channel = net_impl;   // net_impl IS-A channel<net_impl, net_packet>
+
+// Build and seal a net_packet addressed to `dest`.
+static net_packet make_net(std::uint8_t dest,
+                            std::byte fill = std::byte{0x42})
+{
+    net_packet p{header_type::data, header_options::none};
+    p.header.receiver_id = dest;
+    p.header.sender_id   = 0x10;
+    for (std::size_t i = 0; i < net_packet::payload_size; ++i)
+        p.payload[i] = fill;
+    validator<net_packet>{}.seal(p);
+    return p;
+}
+
+static void inject_net(wire_state& w, const net_packet& pkt) {
+    const auto* raw = reinterpret_cast<const std::byte*>(&pkt);
+    for (std::size_t i = 0; i < sizeof(net_packet); ++i)
+        w.rx.push_back(raw[i]);
+}
+
+struct addr_filter : ::testing::Test {
+    wire_state   wire;
+    net_channel  ch{&wire};
+};
+
+TEST_F(addr_filter, accepts_packet_addressed_to_this_board) {
+    inject_net(wire, make_net(static_cast<std::uint8_t>(ECOMM_BOARD_ID)));
+    EXPECT_TRUE(ch.try_receive().has_value());
+}
+
+TEST_F(addr_filter, accepts_broadcast_packet) {
+    inject_net(wire, make_net(0xFFu));
+    EXPECT_TRUE(ch.try_receive().has_value());
+}
+
+TEST_F(addr_filter, drops_packet_addressed_to_different_board) {
+    // Pick an ID that is neither ECOMM_BOARD_ID nor broadcast.
+    constexpr std::uint8_t other =
+        (static_cast<std::uint8_t>(ECOMM_BOARD_ID) == 2u) ? 3u : 2u;
+    inject_net(wire, make_net(other));
+    EXPECT_FALSE(ch.try_receive().has_value());
+}
+
+TEST_F(addr_filter, drops_packet_with_reserved_zero_address) {
+    inject_net(wire, make_net(0x00u));
+    EXPECT_FALSE(ch.try_receive().has_value());
+}
+
+TEST_F(addr_filter, rx_bytes_consumed_even_when_address_filtered) {
+    // After a filtered packet the wire is empty -- no byte remains stranded.
+    constexpr std::uint8_t other =
+        (static_cast<std::uint8_t>(ECOMM_BOARD_ID) == 2u) ? 3u : 2u;
+    inject_net(wire, make_net(other));
+    static_cast<void>(ch.try_receive());   // filtered
+    EXPECT_EQ(wire.rx.size(), 0u);
 }
