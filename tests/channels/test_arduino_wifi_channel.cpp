@@ -62,7 +62,7 @@
 using namespace ecomm::protocol;
 using namespace ecomm::channels;
 
-using test_packet  = packet<32, topology::point_to_point, crc32>;
+using test_packet  = packet<32, topology::point_to_point, no_sequence, crc32>;
 using test_channel = arduino_wifi_channel<test_packet>;
 
 static test_packet make_sealed(header_type type = header_type::data,

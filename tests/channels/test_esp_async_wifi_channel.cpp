@@ -82,7 +82,7 @@
 using namespace ecomm::protocol;
 using namespace ecomm::channels;
 
-using test_packet  = packet<32, topology::point_to_point, crc32>;
+using test_packet  = packet<32, topology::point_to_point, no_sequence, crc32>;
 
 // Queue depth of 4 for most tests; a dedicated fixture uses depth 3 for
 // overflow testing (easier to fill than 4).

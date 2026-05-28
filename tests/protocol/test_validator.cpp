@@ -51,7 +51,7 @@ using namespace ecomm::protocol;
 
 template<typename ChecksumPolicy>
 struct validator_typed_test : ::testing::Test {
-    using pkt_t = packet<32, topology::point_to_point, ChecksumPolicy>;
+    using pkt_t = packet<32, topology::point_to_point, no_sequence, ChecksumPolicy>;
     using val_t = validator<pkt_t>;
 
     pkt_t pkt{header_type::data, header_options::none};
@@ -205,7 +205,7 @@ TYPED_TEST(validator_typed_test, seal_preserves_payload) {
 // ---------------------------------------------------------------------------
 
 TEST(validator_network, sender_id_corruption_detected) {
-    using pkt_t = packet<32, topology::network, crc32>;
+    using pkt_t = packet<32, topology::network, no_sequence, crc32>;
     validator<pkt_t> v{};
     pkt_t p{header_type::data, header_options::none};
     p.header.sender_id   = 0x01;
@@ -219,7 +219,7 @@ TEST(validator_network, sender_id_corruption_detected) {
 }
 
 TEST(validator_network, receiver_id_corruption_detected) {
-    using pkt_t = packet<32, topology::network, crc32>;
+    using pkt_t = packet<32, topology::network, no_sequence, crc32>;
     validator<pkt_t> v{};
     pkt_t p{header_type::data, header_options::none};
     p.header.sender_id   = 0x01;

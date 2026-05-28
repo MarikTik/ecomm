@@ -57,7 +57,7 @@ using namespace ecomm::protocol;
 using namespace ecomm::channels;
 
 // Packet with a real checksum policy so seal/validate are non-trivial.
-using test_packet = packet<32, topology::point_to_point, crc32>;
+using test_packet = packet<32, topology::point_to_point, no_sequence, crc32>;
 using test_channel = arduino_serial_channel<test_packet>;
 
 // Seal a packet using the validator and return it (for constructing wire bytes).
