@@ -34,9 +34,9 @@ namespace ecomm::protocol {
         error_code       code,
         std::string_view message
     ) noexcept {
-        assert(payload_begin != nullptr &&
+        assert(payload_begin != nullptr and
                "error_envelope::write: payload_begin is null");
-        assert(message.size() <= max_message_length_in_payload &&
+        assert(message.size() <= max_message_length_in_payload and
                "error_envelope::write: message exceeds this packet's message capacity");
 
         const auto length = static_cast<error_message_length_t>(message.size());
@@ -105,7 +105,7 @@ namespace ecomm::protocol {
     template<typename Packet>
     inline std::optional<error_view> as_error(const Packet& packet) noexcept {
         assert(
-            packet.header.has(header_options::error) &&
+            packet.header.has(header_options::error) and
             "as_error: called on a packet whose header does not have the error flag set"
         );
         return as_error_unchecked(packet);

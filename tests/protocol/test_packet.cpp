@@ -179,7 +179,7 @@ static_assert(pkt_net_seq_crc32::payload_size + sizeof(pkt_net_seq_crc32::header
 
 static bool all_zero(const std::byte* ptr, std::size_t n) {
     for (std::size_t i = 0; i < n; ++i)
-        if (ptr[i] != std::byte{0}) return false;
+        if (ptr[i] not_eq std::byte{0}) return false;
     return true;
 }
 

@@ -78,7 +78,7 @@ namespace ecomm
         std::optional<Packet> result;
 
         std::apply([this, &result](auto&... interfaces) {
-            (... || ([this, &result, &interfaces] {  
+            (... or ([this, &result, &interfaces] {
                 using interface_t = std::decay_t<decltype(interfaces)>;
              
                 auto maybe = maybe_try_receive<interface_t>(interfaces);

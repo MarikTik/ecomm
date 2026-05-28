@@ -37,9 +37,9 @@ namespace ecomm::channels {
     bool arduino_wifi_channel<Packet, tag>::do_try_receive(Packet& out) noexcept {
         static_assert(std::is_trivially_copyable_v<Packet>,
                       "Packet must be trivially copyable");
-        if (!_client) {
+        if (not _client) {
             _client = _server.available();
-            if (!_client) return false;
+            if (not _client) return false;
         }
         if (static_cast<std::size_t>(_client.available()) < sizeof(Packet))
             return false;
@@ -51,9 +51,9 @@ namespace ecomm::channels {
     void arduino_wifi_channel<Packet, tag>::do_send(const Packet& packet) noexcept {
         static_assert(std::is_trivially_copyable_v<Packet>,
                       "Packet must be trivially copyable");
-        if (!_client) {
+        if (not _client) {
             _client = _server.available();
-            if (!_client) return;
+            if (not _client) return;
         }
         _client.write(reinterpret_cast<const std::uint8_t*>(&packet), sizeof(Packet));
     }

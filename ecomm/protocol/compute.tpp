@@ -50,8 +50,8 @@ namespace ecomm::protocol::details {
     SumType sum_generic(const std::byte* data, size_t size)
     {
         static_assert(
-            std::is_same_v<SumType, uint8_t> ||
-            std::is_same_v<SumType, uint16_t> ||
+            std::is_same_v<SumType, uint8_t> or
+            std::is_same_v<SumType, uint16_t> or
             std::is_same_v<SumType, uint32_t>,
             "sum_generic supports only sum8, sum16, sum32 policies."
         );
@@ -107,9 +107,9 @@ namespace ecomm::protocol::details {
     template<typename CRCType>
     inline CRCType crc_generic(const std::byte* data, size_t size, const CRCType* table, CRCType initial = 0, CRCType final_xor = 0) noexcept{
         static_assert(
-            std::is_same_v<CRCType, uint8_t> || 
-            std::is_same_v<CRCType, uint16_t> || 
-            std::is_same_v<CRCType, uint32_t> || 
+            std::is_same_v<CRCType, uint8_t> or
+            std::is_same_v<CRCType, uint16_t> or
+            std::is_same_v<CRCType, uint32_t> or
             std::is_same_v<CRCType, uint64_t>,
             "CRCType must be an unsigned integer type (uint8_t, uint16_t, etc)."
         );
@@ -331,7 +331,7 @@ namespace ecomm::protocol {
         }
         
         // Handle odd final byte
-        if (size % 2 != 0) {
+        if (size % 2 not_eq 0) {
             uint16_t last = static_cast<uint16_t>(data[size - 1]);
             sum1 = (sum1 + last) % 65535;
             sum2 = (sum2 + sum1) % 65535;
@@ -361,7 +361,7 @@ namespace ecomm::protocol {
         for (size_t i = 0; i < word_count; ++i)
         sum += words[i];
         
-        if (size % 2 != 0)  // Handle odd byte
+        if (size % 2 not_eq 0)  // Handle odd byte
         sum += static_cast<uint8_t>(data[size - 1]) << 8;
         
         // Fold carries

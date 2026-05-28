@@ -147,19 +147,19 @@ static_assert(hdr_net_seq_crc32::fcs_size == 4, "net/seq/crc32: fcs_size must be
 // Compile-time constant checks  --  has_node_ids
 // ---------------------------------------------------------------------------
 
-static_assert(!hdr_p2p_none::has_node_ids,     "p2p topology must not have node ids");
+static_assert(not hdr_p2p_none::has_node_ids,     "p2p topology must not have node ids");
 static_assert( hdr_net_none::has_node_ids,     "network topology must have node ids");
-static_assert(!hdr_p2p_seq_none::has_node_ids, "p2p/seq topology must not have node ids");
+static_assert(not hdr_p2p_seq_none::has_node_ids, "p2p/seq topology must not have node ids");
 static_assert( hdr_net_seq_none::has_node_ids, "net/seq topology must have node ids");
 
 // ---------------------------------------------------------------------------
 // Compile-time constant checks  --  has_seq_num
 // ---------------------------------------------------------------------------
 
-static_assert(!hdr_p2p_none::has_seq_num,    "no_sequence must not have seq_num");
-static_assert(!hdr_net_none::has_seq_num,    "net/no_sequence must not have seq_num");
-static_assert(!hdr_p2p_crc32::has_seq_num,  "p2p/crc32 must not have seq_num");
-static_assert(!hdr_net_crc32::has_seq_num,  "net/crc32 must not have seq_num");
+static_assert(not hdr_p2p_none::has_seq_num,    "no_sequence must not have seq_num");
+static_assert(not hdr_net_none::has_seq_num,    "net/no_sequence must not have seq_num");
+static_assert(not hdr_p2p_crc32::has_seq_num,  "p2p/crc32 must not have seq_num");
+static_assert(not hdr_net_crc32::has_seq_num,  "net/crc32 must not have seq_num");
 static_assert( hdr_p2p_seq_none::has_seq_num,  "p2p/seq/none must have seq_num");
 static_assert( hdr_p2p_seq_crc32::has_seq_num, "p2p/seq/crc32 must have seq_num");
 static_assert( hdr_net_seq_none::has_seq_num,  "net/seq/none must have seq_num");
@@ -478,7 +478,7 @@ TEST(packet_header, option_bits_do_not_affect_type) {
 // ---------------------------------------------------------------------------
 
 TEST(packet_header, p2p_topology_no_network_ids) {
-    static_assert(!hdr_p2p_none::has_node_ids);
+    static_assert(not hdr_p2p_none::has_node_ids);
     static_assert(sizeof(hdr_p2p_none) == 1);
 }
 

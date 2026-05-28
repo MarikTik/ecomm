@@ -83,7 +83,7 @@ reliable_channel<Impl, Packet, ClockPolicy, MaxRetries, BufferDepth>
 
     // Poll the inner channel for one packet.
     auto incoming = _channel.try_receive();
-    if (!incoming) return std::nullopt;
+    if (not incoming) return std::nullopt;
 
     Packet& pkt = *incoming;
 
@@ -133,12 +133,12 @@ reliable_channel<Impl, Packet, ClockPolicy, MaxRetries, BufferDepth>
     ::poll_ack(std::uint8_t seq) noexcept
 {
     auto incoming = _channel.try_receive();
-    if (!incoming) return false;
+    if (not incoming) return false;
 
     const Packet& pkt = *incoming;
 
     // Must be an ack with the matching seq_num.
-    if (!pkt.header.has(protocol::header_options::ack)) {
+    if (not pkt.header.has(protocol::header_options::ack)) {
         // Received a data packet while waiting for an ack.
         // Stage it so the caller can retrieve it via try_receive later.
         stage_push(pkt);

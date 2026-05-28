@@ -57,7 +57,7 @@ namespace ecomm::channels {
     void esp_async_wifi_channel<Packet, QueueDepth>::do_send(
         const Packet& packet
     ) noexcept {
-        if (!_client) return;
+        if (not _client) return;
         // write() accepts a const char* and a size. The cast is safe: Packet is
         // trivially copyable and we are treating it as a raw byte sequence.
         _client->write(
@@ -163,7 +163,7 @@ namespace ecomm::channels {
     void esp_async_wifi_channel<Packet, QueueDepth>::push_packet() noexcept {
         _cs.enter();
         const bool full = queue_full();
-        if (!full) {
+        if (not full) {
             std::memcpy(&_slots[_head], _staging, sizeof(Packet));
             _head = (_head + 1) % QueueDepth;
         }
