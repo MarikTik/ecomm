@@ -44,8 +44,6 @@ namespace ecomm::channels {
         if (not static_cast<Impl*>(this)->do_try_receive(out)) return std::nullopt;
         if (not _validator.is_valid(out))                      return std::nullopt;
 
-        // Address filtering for network-topology packets.
-        // Point-to-point packets carry no node IDs; the check is compiled away.
         if constexpr (Packet::header_t::has_node_ids) {
             constexpr auto broadcast = static_cast<std::uint8_t>(0xFFu);
             const auto dest          = out.header.receiver_id;

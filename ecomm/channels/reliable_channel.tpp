@@ -26,10 +26,6 @@
 
 namespace ecomm::channels {
 
-// =============================================================================
-// Constructor
-// =============================================================================
-
 template<typename Impl, typename Packet, typename ClockPolicy,
          std::size_t MaxRetries, std::size_t BufferDepth>
 template<typename... Args>
@@ -37,10 +33,6 @@ reliable_channel<Impl, Packet, ClockPolicy, MaxRetries, BufferDepth>
     ::reliable_channel(Args&&... args) noexcept
     : _channel{static_cast<Args&&>(args)...}
 {}
-
-// =============================================================================
-// send
-// =============================================================================
 
 template<typename Impl, typename Packet, typename ClockPolicy,
          std::size_t MaxRetries, std::size_t BufferDepth>
@@ -67,49 +59,33 @@ reliable_channel<Impl, Packet, ClockPolicy, MaxRetries, BufferDepth>
     return send_result::timeout;
 }
 
-// =============================================================================
-// try_receive
-// =============================================================================
-
 template<typename Impl, typename Packet, typename ClockPolicy,
          std::size_t MaxRetries, std::size_t BufferDepth>
 std::optional<Packet>
 reliable_channel<Impl, Packet, ClockPolicy, MaxRetries, BufferDepth>
     ::try_receive() noexcept
 {
-    // Drain the staging buffer first.
     Packet out{};
     if (stage_pop(out)) return out;
 
-    // Poll the inner channel for one packet.
     auto incoming = _channel.try_receive();
     if (not incoming) return std::nullopt;
 
     Packet& pkt = *incoming;
 
-    // Ack packets are consumed internally -- never surfaced to the caller.
     if (pkt.header.has(protocol::header_options::ack)) return std::nullopt;
 
     const std::uint8_t seq = pkt.header.seq_num;
 
     if (seq == _rx_seq) {
-        // New in-order data packet.
         send_ack(seq);
         _rx_seq = static_cast<std::uint8_t>(_rx_seq + 1u);
-        // The staging ring was empty when we entered (we drained it above).
-        // Return the packet directly -- no push/pop round trip needed.
         return pkt;
     }
 
-    // Stale duplicate (remote retransmitting something we already acked).
-    // Re-ack so the remote can advance and discard.
     send_ack(seq);
     return std::nullopt;
 }
-
-// =============================================================================
-// Private helpers
-// =============================================================================
 
 template<typename Impl, typename Packet, typename ClockPolicy,
          std::size_t MaxRetries, std::size_t BufferDepth>
@@ -137,10 +113,7 @@ reliable_channel<Impl, Packet, ClockPolicy, MaxRetries, BufferDepth>
 
     const Packet& pkt = *incoming;
 
-    // Must be an ack with the matching seq_num.
     if (not pkt.header.has(protocol::header_options::ack)) {
-        // Received a data packet while waiting for an ack.
-        // Stage it so the caller can retrieve it via try_receive later.
         stage_push(pkt);
         return false;
     }
@@ -154,7 +127,7 @@ bool
 reliable_channel<Impl, Packet, ClockPolicy, MaxRetries, BufferDepth>
     ::stage_push(const Packet& pkt) noexcept
 {
-    if (_stage_count == BufferDepth) return false;  // ring full
+    if (_stage_count == BufferDepth) return false;
     _stage[_stage_head] = pkt;
     _stage_head = (_stage_head + 1) % BufferDepth;
     ++_stage_count;
@@ -167,7 +140,7 @@ bool
 reliable_channel<Impl, Packet, ClockPolicy, MaxRetries, BufferDepth>
     ::stage_pop(Packet& out) noexcept
 {
-    if (_stage_count == 0) return false;  // ring empty
+    if (_stage_count == 0) return false;
     const std::size_t tail = (_stage_head + BufferDepth - _stage_count) % BufferDepth;
     out = _stage[tail];
     --_stage_count;

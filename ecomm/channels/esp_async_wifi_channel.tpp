@@ -37,10 +37,6 @@ namespace ecomm::channels {
     ) noexcept
         : _server{server}
     {
-        // Register the new-connection callback. AsyncTCP calls this on the TCP
-        // task whenever a client completes the handshake. The lambda captures
-        // `this` by pointer  --  safe because the channel outlives the server in
-        // any correct usage (see @pre in the header).
         _server.onClient(
             [](void* arg, AsyncClient* client) {
                 static_cast<esp_async_wifi_channel*>(arg)->on_client(client);
@@ -50,7 +46,7 @@ namespace ecomm::channels {
     }
 
     // -------------------------------------------------------------------------
-    // channel<> CRTP contract  --  called by the base send / try_receive
+    // channel<> CRTP contract
     // -------------------------------------------------------------------------
 
     template<typename Packet, std::size_t QueueDepth>
@@ -58,8 +54,6 @@ namespace ecomm::channels {
         const Packet& packet
     ) noexcept {
         if (not _client) return;
-        // write() accepts a const char* and a size. The cast is safe: Packet is
-        // trivially copyable and we are treating it as a raw byte sequence.
         _client->write(
             reinterpret_cast<const char*>(&packet),
             sizeof(Packet)
@@ -76,8 +70,6 @@ namespace ecomm::channels {
 
         if (empty) return false;
 
-        // Copy the packet out of the ring slot before advancing the tail, so
-        // the callback can never overwrite a slot we are mid-read.
         std::memcpy(&out, &_slots[_tail], sizeof(Packet));
 
         _cs.enter();
@@ -96,14 +88,12 @@ namespace ecomm::channels {
         AsyncClient* client
     ) noexcept {
         if (_client) {
-            // Already have an active connection  --  reject the newcomer.
             client->close(true);
             return;
         }
 
         _client = client;
 
-        // Per-client data callback.
         client->onData(
             [](void* arg, AsyncClient*, void* data, std::size_t len) {
                 static_cast<esp_async_wifi_channel*>(arg)->on_data(data, len);
@@ -111,7 +101,6 @@ namespace ecomm::channels {
             this
         );
 
-        // Per-client disconnect callback.
         client->onDisconnect(
             [](void* arg, AsyncClient* c) {
                 static_cast<esp_async_wifi_channel*>(arg)->on_disconnect(c);
@@ -128,17 +117,15 @@ namespace ecomm::channels {
         std::size_t consumed = 0;
 
         while (consumed < len) {
-            // How many bytes does the current staging slot still need?
-            const std::size_t needed   = sizeof(Packet) - _staging_used;
+            const std::size_t needed    = sizeof(Packet) - _staging_used;
             const std::size_t available = len - consumed;
-            const std::size_t to_copy  = available < needed ? available : needed;
+            const std::size_t to_copy   = available < needed ? available : needed;
 
             std::memcpy(_staging + _staging_used, bytes + consumed, to_copy);
             _staging_used += to_copy;
             consumed      += to_copy;
 
             if (_staging_used == sizeof(Packet)) {
-                // A complete packet has been assembled  --  push it into the queue.
                 push_packet();
                 _staging_used = 0;
             }
@@ -151,7 +138,7 @@ namespace ecomm::channels {
     ) noexcept {
         if (client == _client) {
             _client       = nullptr;
-            _staging_used = 0;   // discard any partial packet in flight
+            _staging_used = 0;
         }
     }
 
@@ -167,8 +154,6 @@ namespace ecomm::channels {
             std::memcpy(&_slots[_head], _staging, sizeof(Packet));
             _head = (_head + 1) % QueueDepth;
         }
-        // If full: silently drop. Stale packets in a real-time workload are
-        // worthless; the caller's try_receive rate is too low for the packet rate.
         _cs.exit();
     }
 

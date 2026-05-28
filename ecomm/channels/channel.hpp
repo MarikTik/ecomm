@@ -106,13 +106,15 @@ namespace ecomm::channels {
         /**
         * @brief Attempt to receive a packet.
         *
-        * Delegates to `Impl::do_try_receive`. If a complete packet was read and
-        * it passes `validator::is_valid`, returns the packet wrapped in an
-        * engaged `std::optional`. Returns `std::nullopt` if nothing is available
-        * or the packet is corrupt.
+        * Delegates to `Impl::do_try_receive`. If a complete packet was read, it
+        * passes `validator::is_valid`, and (for network-topology packets) its
+        * `receiver_id` is either `ECOMM_BOARD_ID` or `0xFF` (broadcast), the
+        * packet is returned in an engaged `std::optional`. Returns `std::nullopt`
+        * if nothing is available, the packet is corrupt, or it is addressed to
+        * a different node.
         *
         * @return An engaged `std::optional<Packet>` holding the validated packet,
-        *         or `std::nullopt` if nothing was available or validation failed.
+        *         or `std::nullopt` otherwise.
         */
         [[nodiscard]] std::optional<Packet> try_receive() noexcept;
 
