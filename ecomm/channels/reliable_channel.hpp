@@ -6,6 +6,14 @@
 *
 * @ingroup ecomm_channels ecomm::channels
 *
+* @par BLOCKING
+* **`send` is a blocking call.** It busy-polls the underlying channel for an
+* acknowledgement, retransmitting up to `MaxRetries` times. The caller's
+* thread (or Arduino loop) is fully occupied for up to
+* `MaxRetries * ClockPolicy::timeout_ticks()` ticks with no yield, sleep, or
+* cooperative scheduling. Do not use `reliable_channel` where preemption-free
+* stalls are unacceptable. An asynchronous variant is not yet implemented.
+*
 * `reliable_channel<Impl, Packet, ClockPolicy, MaxRetries, BufferDepth>`
 * wraps a `channel<Impl, Packet>` and adds stop-and-wait reliability:
 *
@@ -150,6 +158,11 @@ namespace ecomm::channels {
 
         /**
         * @brief Send a packet with stop-and-wait acknowledgement.
+        *
+        * @par Blocking
+        * **This call busy-polls until an ack is received or the retry budget is
+        * exhausted.** Worst-case hold time is
+        * `MaxRetries * ClockPolicy::timeout_ticks()` ticks.
         *
         * Stamps `packet.header.seq_num` with the current outbound counter,
         * transmits via the inner channel, then polls for a matching ack.
