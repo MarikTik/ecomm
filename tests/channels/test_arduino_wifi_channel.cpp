@@ -11,7 +11,7 @@
 * host without any Arduino/ESP SDK present. No library source file is modified.
 *
 * The mock WiFiClient uses a shared backend (std::shared_ptr) so that the
-* channel's internal copy and the test's handle see the same RX/TX buffers —
+* channel's internal copy and the test's handle see the same RX/TX buffers --
 * mirroring the real WiFiClient handle semantics.
 *
 * Coverage:
@@ -20,13 +20,14 @@
 *     - The written bytes deserialize to a packet whose FCS is valid.
 *     - Sending twice appends two packets to the TX buffer.
 *     - No bytes written when no client is available.
+*     - send() returns send_result::ok.
 *
 *   try_receive
-*     - Returns false when no client is available.
-*     - Returns false when client is available but RX is empty.
-*     - Returns false when fewer than sizeof(Packet) bytes are available.
-*     - Returns true and populates `out` for a complete sealed packet.
-*     - Returns false for a complete but corrupt packet (state of `out` unspecified).
+*     - Returns nullopt when no client is available.
+*     - Returns nullopt when client is available but RX is empty.
+*     - Returns nullopt when fewer than sizeof(Packet) bytes are available.
+*     - Returns an engaged optional for a complete sealed packet.
+*     - Returns nullopt for a complete but corrupt packet.
 *
 *   round-trip
 *     - A packet sent through one channel and injected into a second is
@@ -44,6 +45,7 @@
 *
 * @par Changelog
 * - 2026-05-26 Initial creation.
+* - 2026-05-27 Updated for send_result return and std::optional try_receive.
 */
 
 #include <gtest/gtest.h>
@@ -84,7 +86,7 @@ TEST(arduino_wifi_channel_send, writes_exactly_packet_size_bytes) {
     test_channel ch{server};
 
     test_packet pkt{header_type::data, header_options::none};
-    ch.send(pkt);
+    static_cast<void>(ch.send(pkt));
 
     EXPECT_EQ(server.client.tx().size(), sizeof(test_packet));
 }
@@ -94,7 +96,7 @@ TEST(arduino_wifi_channel_send, written_bytes_deserialize_to_valid_packet) {
     test_channel ch{server};
 
     test_packet pkt{header_type::data, header_options::none};
-    ch.send(pkt);
+    static_cast<void>(ch.send(pkt));
 
     test_packet wire{};
     std::memcpy(&wire, server.client.tx().data(), sizeof(test_packet));
@@ -106,8 +108,8 @@ TEST(arduino_wifi_channel_send, sending_twice_appends_two_packets) {
     test_channel ch{server};
 
     test_packet pkt{header_type::data, header_options::none};
-    ch.send(pkt);
-    ch.send(pkt);
+    static_cast<void>(ch.send(pkt));
+    static_cast<void>(ch.send(pkt));
 
     EXPECT_EQ(server.client.tx().size(), 2 * sizeof(test_packet));
 }
@@ -118,52 +120,56 @@ TEST(arduino_wifi_channel_send, no_bytes_written_when_no_client) {
     test_channel ch{server};
 
     test_packet pkt{header_type::data, header_options::none};
-    ch.send(pkt);
+    static_cast<void>(ch.send(pkt));
 
     EXPECT_TRUE(server.client.tx().empty());
+}
+
+TEST(arduino_wifi_channel_send, returns_ok) {
+    WiFiServer server;
+    test_channel ch{server};
+
+    test_packet pkt{header_type::data, header_options::none};
+    EXPECT_EQ(ch.send(pkt), send_result::ok);
 }
 
 // ---------------------------------------------------------------------------
 // try_receive
 // ---------------------------------------------------------------------------
 
-TEST(arduino_wifi_channel_try_receive, returns_false_when_no_client) {
+TEST(arduino_wifi_channel_try_receive, returns_nullopt_when_no_client) {
     WiFiServer server;
     server.set_client_available(false);
     test_channel ch{server};
 
-    test_packet out{};
-    EXPECT_FALSE(ch.try_receive(out));
+    EXPECT_FALSE(ch.try_receive().has_value());
 }
 
-TEST(arduino_wifi_channel_try_receive, returns_false_when_rx_empty) {
+TEST(arduino_wifi_channel_try_receive, returns_nullopt_when_rx_empty) {
     WiFiServer server;
     test_channel ch{server};
 
-    test_packet out{};
-    EXPECT_FALSE(ch.try_receive(out));
+    EXPECT_FALSE(ch.try_receive().has_value());
 }
 
-TEST(arduino_wifi_channel_try_receive, returns_false_when_partial_packet) {
+TEST(arduino_wifi_channel_try_receive, returns_nullopt_when_partial_packet) {
     WiFiServer server;
     test_channel ch{server};
 
     const test_packet pkt = make_sealed();
     server.client.inject(&pkt, sizeof(test_packet) - 1);
 
-    test_packet out{};
-    EXPECT_FALSE(ch.try_receive(out));
+    EXPECT_FALSE(ch.try_receive().has_value());
 }
 
-TEST(arduino_wifi_channel_try_receive, accepts_valid_sealed_packet) {
+TEST(arduino_wifi_channel_try_receive, returns_engaged_optional_for_valid_packet) {
     WiFiServer server;
     test_channel ch{server};
 
     const test_packet pkt = make_sealed();
     server.client.inject(&pkt, sizeof(test_packet));
 
-    test_packet out{};
-    EXPECT_TRUE(ch.try_receive(out));
+    EXPECT_TRUE(ch.try_receive().has_value());
 }
 
 TEST(arduino_wifi_channel_try_receive, received_packet_matches_sent) {
@@ -173,13 +179,12 @@ TEST(arduino_wifi_channel_try_receive, received_packet_matches_sent) {
     const test_packet pkt = make_sealed();
     server.client.inject(&pkt, sizeof(test_packet));
 
-    test_packet out{};
-    static_cast<void>(ch.try_receive(out));
-
-    EXPECT_EQ(std::memcmp(&out, &pkt, sizeof(test_packet)), 0);
+    const auto result = ch.try_receive();
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(std::memcmp(&result.value(), &pkt, sizeof(test_packet)), 0);
 }
 
-TEST(arduino_wifi_channel_try_receive, rejects_corrupt_packet) {
+TEST(arduino_wifi_channel_try_receive, returns_nullopt_for_corrupt_packet) {
     WiFiServer server;
     test_channel ch{server};
 
@@ -187,24 +192,7 @@ TEST(arduino_wifi_channel_try_receive, rejects_corrupt_packet) {
     pkt.payload[0] ^= std::byte{0xFF};
     server.client.inject(&pkt, sizeof(test_packet));
 
-    test_packet out{};
-    EXPECT_FALSE(ch.try_receive(out));
-}
-
-TEST(arduino_wifi_channel_try_receive, corrupt_packet_returns_false) {
-    // Contract: a structurally corrupt packet must be rejected (false return).
-    // The state of `out` after a false return is intentionally unspecified —
-    // try_receive reads into `out` before validating to avoid a second
-    // packet-sized stack allocation on RAM-constrained targets.
-    WiFiServer server;
-    test_channel ch{server};
-
-    test_packet pkt = make_sealed();
-    pkt.payload[0] ^= std::byte{0xFF};
-    server.client.inject(&pkt, sizeof(test_packet));
-
-    test_packet out{};
-    EXPECT_FALSE(ch.try_receive(out));
+    EXPECT_FALSE(ch.try_receive().has_value());
 }
 
 // ---------------------------------------------------------------------------
@@ -221,16 +209,15 @@ TEST(arduino_wifi_channel_round_trip, send_then_receive_preserves_packet) {
     for (std::size_t i = 0; i < test_packet::payload_size; ++i)
         original.payload[i] = static_cast<std::byte>(i);
 
-    tx_ch.send(original);
+    static_cast<void>(tx_ch.send(original));
 
-    // Wire the TX bytes from the sender's client into the receiver's client.
     rx_server.client.inject(tx_server.client.tx().data(),
                             tx_server.client.tx().size());
 
-    test_packet received{};
-    ASSERT_TRUE(rx_ch.try_receive(received));
+    const auto result = rx_ch.try_receive();
+    ASSERT_TRUE(result.has_value());
 
-    EXPECT_EQ(std::memcmp(received.payload, original.payload,
+    EXPECT_EQ(std::memcmp(result->payload, original.payload,
                           test_packet::payload_size), 0);
-    EXPECT_EQ(received.header.type(), header_type::data);
+    EXPECT_EQ(result->header.type(), header_type::data);
 }
