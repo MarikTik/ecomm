@@ -1,0 +1,179 @@
+// SPDX-License-Identifier: BSL-1.1
+/**
+* @file reliable_channel.tpp
+*
+* @brief Template definitions for reliable_channel.
+*
+* @ingroup ecomm_channels ecomm::channels
+*
+* @author Mark Tikhonov <mtik.philosopher@gmail.com>
+*
+* @date 2026-05-28
+*
+* @copyright
+* Business Source License 1.1 (BSL 1.1)
+* Copyright (c) 2026 Mark Tikhonov
+* Free for non-commercial use. Commercial use requires a separate license.
+* See LICENSE file for details.
+*
+* @par Changelog
+* - 2026-05-28 Initial creation.
+*/
+#ifndef ECOMM_CHANNELS_RELIABLE_CHANNEL_TPP_
+#define ECOMM_CHANNELS_RELIABLE_CHANNEL_TPP_
+
+#include "reliable_channel.hpp"
+
+namespace ecomm::channels {
+
+// =============================================================================
+// Constructor
+// =============================================================================
+
+template<typename Impl, typename Packet, typename ClockPolicy,
+         std::size_t MaxRetries, std::size_t BufferDepth>
+template<typename... Args>
+reliable_channel<Impl, Packet, ClockPolicy, MaxRetries, BufferDepth>
+    ::reliable_channel(Args&&... args) noexcept
+    : _channel{static_cast<Args&&>(args)...}
+{}
+
+// =============================================================================
+// send
+// =============================================================================
+
+template<typename Impl, typename Packet, typename ClockPolicy,
+         std::size_t MaxRetries, std::size_t BufferDepth>
+send_result
+reliable_channel<Impl, Packet, ClockPolicy, MaxRetries, BufferDepth>
+    ::send(Packet& packet) noexcept
+{
+    packet.header.seq_num = _tx_seq;
+
+    for (std::size_t attempt = 0; attempt < MaxRetries; ++attempt) {
+        static_cast<void>(_channel.send(packet));
+
+        const tick_type start = ClockPolicy::now();
+        while (static_cast<tick_type>(ClockPolicy::now() - start)
+               < ClockPolicy::timeout_ticks())
+        {
+            if (poll_ack(_tx_seq)) {
+                _tx_seq = static_cast<std::uint8_t>(_tx_seq + 1u);
+                return send_result::ok;
+            }
+        }
+    }
+
+    return send_result::timeout;
+}
+
+// =============================================================================
+// try_receive
+// =============================================================================
+
+template<typename Impl, typename Packet, typename ClockPolicy,
+         std::size_t MaxRetries, std::size_t BufferDepth>
+std::optional<Packet>
+reliable_channel<Impl, Packet, ClockPolicy, MaxRetries, BufferDepth>
+    ::try_receive() noexcept
+{
+    // Drain the staging buffer first.
+    Packet out{};
+    if (stage_pop(out)) return out;
+
+    // Poll the inner channel for one packet.
+    auto incoming = _channel.try_receive();
+    if (!incoming) return std::nullopt;
+
+    Packet& pkt = *incoming;
+
+    // Ack packets are consumed internally -- never surfaced to the caller.
+    if (pkt.header.has(protocol::header_options::ack)) return std::nullopt;
+
+    const std::uint8_t seq = pkt.header.seq_num;
+
+    if (seq == _rx_seq) {
+        // New in-order data packet.
+        send_ack(seq);
+        _rx_seq = static_cast<std::uint8_t>(_rx_seq + 1u);
+        // The staging ring was empty when we entered (we drained it above).
+        // Return the packet directly -- no push/pop round trip needed.
+        return pkt;
+    }
+
+    // Stale duplicate (remote retransmitting something we already acked).
+    // Re-ack so the remote can advance and discard.
+    send_ack(seq);
+    return std::nullopt;
+}
+
+// =============================================================================
+// Private helpers
+// =============================================================================
+
+template<typename Impl, typename Packet, typename ClockPolicy,
+         std::size_t MaxRetries, std::size_t BufferDepth>
+void
+reliable_channel<Impl, Packet, ClockPolicy, MaxRetries, BufferDepth>
+    ::send_ack(std::uint8_t seq) noexcept
+{
+    Packet ack{};
+    ack.header = typename Packet::header_t{
+        protocol::header_type::data,
+        protocol::header_options::ack
+    };
+    ack.header.seq_num = seq;
+    static_cast<void>(_channel.send(ack));
+}
+
+template<typename Impl, typename Packet, typename ClockPolicy,
+         std::size_t MaxRetries, std::size_t BufferDepth>
+bool
+reliable_channel<Impl, Packet, ClockPolicy, MaxRetries, BufferDepth>
+    ::poll_ack(std::uint8_t seq) noexcept
+{
+    auto incoming = _channel.try_receive();
+    if (!incoming) return false;
+
+    const Packet& pkt = *incoming;
+
+    // Must be an ack with the matching seq_num.
+    if (!pkt.header.has(protocol::header_options::ack)) {
+        // Received a data packet while waiting for an ack.
+        // Stage it so the caller can retrieve it via try_receive later.
+        stage_push(pkt);
+        return false;
+    }
+
+    return pkt.header.seq_num == seq;
+}
+
+template<typename Impl, typename Packet, typename ClockPolicy,
+         std::size_t MaxRetries, std::size_t BufferDepth>
+bool
+reliable_channel<Impl, Packet, ClockPolicy, MaxRetries, BufferDepth>
+    ::stage_push(const Packet& pkt) noexcept
+{
+    if (_stage_count == BufferDepth) return false;  // ring full
+    _stage[_stage_head] = pkt;
+    _stage_head = (_stage_head + 1) % BufferDepth;
+    ++_stage_count;
+    return true;
+}
+
+template<typename Impl, typename Packet, typename ClockPolicy,
+         std::size_t MaxRetries, std::size_t BufferDepth>
+bool
+reliable_channel<Impl, Packet, ClockPolicy, MaxRetries, BufferDepth>
+    ::stage_pop(Packet& out) noexcept
+{
+    if (_stage_count == 0) return false;  // ring empty
+    const std::size_t tail = (_stage_head + BufferDepth - _stage_count) % BufferDepth;
+    out = _stage[tail];
+    --_stage_count;
+    return true;
+}
+
+} // namespace ecomm::channels
+
+#endif // ECOMM_CHANNELS_RELIABLE_CHANNEL_TPP_
