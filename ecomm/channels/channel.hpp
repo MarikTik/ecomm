@@ -19,10 +19,19 @@
 * The base `channel` then composes validation (`validator<Packet>`) around those
 * primitives so that callers always work with structurally valid packets.
 *
+* @par Return types
+* - `send` returns `send_result::ok` unconditionally. The unreliable channel
+*   makes no delivery guarantee; `ok` means the bytes were handed to the
+*   transport, not that they were received. `reliable_channel` can return
+*   `send_result::timeout`.
+* - `try_receive` returns `std::optional<Packet>`. A disengaged optional means
+*   nothing was available or the packet failed validation. An engaged optional
+*   holds the validated packet by value.
+*
 * @par Layering
 * ```
 * user code
-*     |  send(Packet&) / try_receive(Packet&)
+*     |  send(Packet&) / try_receive()
 *     v
 * channel<Impl, Packet>          <- validates, seals; never allocates
 *     |  do_send / do_try_receive
@@ -45,13 +54,17 @@
 * @par Changelog
 * - 2026-05-26 Renamed from interfaces/interface.hpp; Packet baked into the
 *              channel type; `delegate_` prefix replaced with `do_`.
+* - 2026-05-27 send() now returns send_result (was void).
+*              try_receive() now returns std::optional<Packet> (was bool + out-param).
 */
 #ifndef ECOMM_CHANNELS_CHANNEL_HPP_
 #define ECOMM_CHANNELS_CHANNEL_HPP_
 
 #include <cstddef>
+#include <optional>
 
 #include "../protocol/validator.hpp"
+#include "send_result.hpp"
 
 namespace ecomm::channels {
 
@@ -77,29 +90,31 @@ namespace ecomm::channels {
         *
         * Seals the packet (computes and writes the FCS if the checksum policy
         * is not `none`) then delegates the raw byte write to `Impl::do_send`.
+        * Always returns `send_result::ok`; the unreliable channel makes no
+        * delivery guarantee.
         *
         * @param[in,out] packet Packet to send. The FCS field may be modified by
         *                       `validator::seal`; all other fields are preserved.
         *
+        * @return `send_result::ok` unconditionally.
+        *
         * @note The caller must not assume the packet is bitwise identical after
-        *       this call returns.
+        *       this call returns (the FCS field is overwritten by `seal`).
         */
-        void send(Packet& packet) noexcept;
+        [[nodiscard]] send_result send(Packet& packet) noexcept;
 
         /**
         * @brief Attempt to receive a packet.
         *
         * Delegates to `Impl::do_try_receive`. If a complete packet was read and
-        * it passes `validator::is_valid`, writes it into `out` and returns `true`.
-        * Returns `false` if no complete packet is available or the packet is corrupt.
+        * it passes `validator::is_valid`, returns the packet wrapped in an
+        * engaged `std::optional`. Returns `std::nullopt` if nothing is available
+        * or the packet is corrupt.
         *
-        * @param[out] out Destination for the received packet. Only written on
-        *                 success (`true` return).
-        *
-        * @return `true`   --  a valid packet was written into `out`.
-        * @return `false`  --  nothing available or packet failed validation.
+        * @return An engaged `std::optional<Packet>` holding the validated packet,
+        *         or `std::nullopt` if nothing was available or validation failed.
         */
-        [[nodiscard]] bool try_receive(Packet& out) noexcept;
+        [[nodiscard]] std::optional<Packet> try_receive() noexcept;
 
     private:
         protocol::validator<Packet> _validator{};

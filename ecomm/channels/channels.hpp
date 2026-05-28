@@ -34,10 +34,12 @@
 * @par Changelog
 * - 2026-05-26 Renamed from interfaces/interfaces.hpp.
 * - 2026-05-26 Added esp_async_wifi_channel for ESP32 / ESP8266.
+* - 2026-05-27 Added send_result.hpp.
 */
 #ifndef ECOMM_CHANNELS_HPP_
 #define ECOMM_CHANNELS_HPP_
 
+#include "send_result.hpp"
 #include "channel.hpp"
 
 #if defined(ARDUINO)
