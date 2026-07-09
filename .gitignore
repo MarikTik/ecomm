@@ -155,3 +155,15 @@ vcpkg_installed/
 
 # Log files
 *.log
+
+# -----------------------------------------------------------------------------
+# ecomm-python (uv / Python)
+# -----------------------------------------------------------------------------
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+ecomm-python/dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
