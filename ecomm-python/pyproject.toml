@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Python client for the ecomm wire protocol -- byte-exact packet headers, checksums, and channels for talking to ecomm firmware from a PC or Raspberry Pi."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "BSL-1.1" }
+license = "MIT"
 license-files = ["LICENSE"]
 authors = [
     { name = "Mark Tikhonov", email = "mtik.philosopher@gmail.com" },
@@ -12,6 +12,7 @@ authors = [
 keywords = ["ecomm", "embedded", "esp32", "esp8266", "serial", "protocol", "wire-format"]
 classifiers = [
     "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",

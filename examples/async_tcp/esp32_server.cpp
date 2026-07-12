@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSL-1.1
+// SPDX-License-Identifier: MIT
 //
 // esp32_server.cpp -- ESP32 side of the async-TCP serialization example.
 //
@@ -14,7 +14,7 @@
 // PlatformIO or the Arduino IDE for an ESP32 board. See README.md for the
 // wiring, dependencies, and the all-important schema-matching table.
 //
-// Copyright (c) 2026 Mark Tikhonov -- BSL 1.1 (non-commercial). See LICENSE.
+// Copyright (c) 2026 Mark Tikhonov -- MIT License. See LICENSE.
 
 #include <Arduino.h>
 #include <WiFi.h>

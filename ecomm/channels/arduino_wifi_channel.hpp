@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSL-1.1
+// SPDX-License-Identifier: MIT
 /**
 * @file arduino_wifi_channel.hpp
 *
@@ -32,9 +32,8 @@
 * @date 2026-05-26
 *
 * @copyright
-* Business Source License 1.1 (BSL 1.1)
+* MIT License
 * Copyright (c) 2026 Mark Tikhonov
-* Free for non-commercial use. Commercial use requires a separate license.
 * See LICENSE file for details.
 *
 * @par Changelog

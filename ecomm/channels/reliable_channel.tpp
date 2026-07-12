@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSL-1.1
+// SPDX-License-Identifier: MIT
 /**
 * @file reliable_channel.tpp
 *
@@ -11,9 +11,8 @@
 * @date 2026-05-28
 *
 * @copyright
-* Business Source License 1.1 (BSL 1.1)
+* MIT License
 * Copyright (c) 2026 Mark Tikhonov
-* Free for non-commercial use. Commercial use requires a separate license.
 * See LICENSE file for details.
 *
 * @par Changelog
