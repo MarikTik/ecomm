@@ -71,6 +71,7 @@
 *
 * @par Changelog
 * - 2026-05-28 Initial creation.
+* - 2026-07-14 Added public `packet_t` alias for generic code (`ecomm::hub`).
 */
 #ifndef ECOMM_CHANNELS_RELIABLE_CHANNEL_HPP_
 #define ECOMM_CHANNELS_RELIABLE_CHANNEL_HPP_
@@ -129,6 +130,11 @@ namespace ecomm::channels {
 
         /// @brief The underlying unreliable channel type (Impl derives from it).
         using channel_t  = Impl;
+
+        /// @brief The fixed packet type this channel operates on. Lets generic
+        ///        code (e.g. `ecomm::hub`) verify at compile time that several
+        ///        channels share a packet type, without needing `Impl`.
+        using packet_t   = Packet;
 
         /// @brief Tick type supplied by ClockPolicy.
         using tick_type  = typename ClockPolicy::tick_type;
