@@ -55,6 +55,7 @@
 *              channel type; `delegate_` prefix replaced with `do_`.
 * - 2026-05-27 send() now returns send_result (was void).
 *              try_receive() now returns std::optional<Packet> (was bool + out-param).
+* - 2026-07-14 Added public `packet_t` alias for generic code (`ecomm::hub`).
 */
 #ifndef ECOMM_CHANNELS_CHANNEL_HPP_
 #define ECOMM_CHANNELS_CHANNEL_HPP_
@@ -84,6 +85,11 @@ namespace ecomm::channels {
     template<typename Impl, typename Packet>
     class channel {
     public:
+        /// @brief The fixed packet type this channel operates on. Lets generic
+        ///        code (e.g. `ecomm::hub`) verify at compile time that several
+        ///        channels share a packet type, without needing `Impl`.
+        using packet_t = Packet;
+
         /**
         * @brief Send a packet.
         *
