@@ -2,33 +2,117 @@
 /**
 * @file hub.hpp
 *
-* @brief Defines the `ecomm::hub` class for managing multiple communication interfaces.
+* @brief Defines `ecomm::hub`, a compile-time aggregate of several communication channels.
 *
 * @ingroup ecomm
-* 
-* This file declares the `ecomm::hub` template class, which acts as a central communication manager
-* that enables simultaneous operation of multiple communication interfaces (e.g., serial, Wi-Fi, etc.)
 *
-* (Imagine it as the USB hub of your computer where you can plug a mouse, keyboard, headphones into it and than connect the other end to a single 
-* port on your computer. The hub will then manage the communication with all of them)
-* 
-* The `hub` class provides runtime control over which interfaces are active for sending and receiving packets,
-* using a lightweight compile-time-indexed bitset called `typeset`. The class supports dynamically enabling or disabling
-* each interface's participation in send and receive operations.
+* A `hub<Channels...>` combines several already-constructed channels -- any
+* mix of `ecomm::channels::channel<Impl, Packet>` and
+* `ecomm::channels::reliable_channel<Impl, Packet, ...>` instances -- behind
+* one API. Think of it as a USB hub: several physical links (a UART leaf
+* link, a Wi-Fi link, ...) plugged into one place, individually enabled or
+* disabled at runtime.
 *
-* All interfaces must conform to a common interface API, providing `send(const Packet&)` and `try_receive()` methods.
-* 
-* @note To simplify usage with common defaults (all interfaces enabled for send/receive by default),
-*       prefer using the helper function `make_hub()`, which deduces template arguments and enables both
-*       sending and receiving on all provided interfaces.
-* 
+* @par Channels may operate on different Packet types
+* Unlike a single `channel<Impl, Packet>`, `hub` does not require every
+* member to share one packet type. A coordinator's tight UART link to a
+* robot's own actuators and its looser Wi-Fi link to the outside world
+* routinely want different packet sizes -- a small, low-latency packet on
+* the leaf link, a larger one carrying richer telemetry on the uplink. `hub`
+* accepts both in one object:
+* ```cpp
+* hub h{robot_serial_link, world_wifi_link};   // different packet_t each
+* h.send(small_packet_instance);               // Packet deduced -- reaches only matching channels
+* auto p = h.try_receive<small_packet>();       // Packet NOT deducible here; must be named
+* auto any = h.try_receive_any();               // polls every channel; returns a variant
+* ```
+* `send` deduces `Packet` from its argument like any function template, so
+* it reads exactly like the homogeneous case. `try_receive<Packet>` cannot
+* -- there is no argument to deduce a return type from, which is a hard
+* rule of C++ template argument deduction, not a design choice `hub` could
+* avoid without reverting to an output-parameter style `channel<>`
+* deliberately moved away from (see `channel.hpp`'s 2026-05-27 changelog
+* entry). `try_receive_any()` is the way to poll without already knowing
+* which packet type is about to arrive -- see below.
+*
+* @par Ownership: hub does not own its channels
+* `hub` stores **references** to channels the caller already constructed and
+* keeps alive elsewhere (typically as `static`/file-scope objects, the same
+* pattern every channel already uses for the hardware it wraps -- see
+* `arduino_serial_channel`'s `HardwareSerial&`). This is a deliberate choice,
+* not an oversight: `esp_async_wifi_channel` registers its own address with
+* AsyncTCP at construction time
+* (`_server.onClient([](void*, AsyncClient*){...}, this)`), so moving such a
+* channel into an owning container after construction leaves AsyncTCP holding
+* a dangling pointer. Reference storage makes that class of bug structurally
+* impossible: a channel named in `Channels...` is never relocated, ever.
+*
+* @par Compile-time validation
+* Two `static_assert`s fire at `hub<...>`'s own instantiation point (not deep
+* inside a call site) if misused:
+* - Every `Channel` in `Channels...` must be "channel-like" for its own
+*   `packet_t`: it must expose `using packet_t = SomePacket;` and the
+*   `send`/`try_receive` signatures `channel<Impl, Packet>` and
+*   `reliable_channel<...>` both already have. This is duck-typed, not
+*   `is_base_of`-checked, because `reliable_channel` is a standalone class,
+*   not derived from `channel<>`.
+* - Every type in `Channels...` must be pairwise distinct (`hub` indexes its
+*   internal per-channel enable/disable flags by type via
+*   `etools::meta::typeset`). Use each channel's `tag` template parameter to
+*   disambiguate two instances of the same transport, e.g.
+*   `arduino_serial_channel<Packet, 0>` and `arduino_serial_channel<Packet, 1>`.
+*
+* A third check is per-call rather than class-wide: `send<Packet>` and
+* `try_receive<Packet>` each `static_assert` that at least one channel in
+* `Channels...` actually operates on the requested `Packet` -- naming a
+* `Packet` no channel in this `hub` supports is a compile error, not a
+* silent no-op.
+*
+* @par send() aggregates per-channel results
+* `hub::send<Packet>()` fans the packet out to every *active* sender whose
+* `packet_t` matches `Packet`, and returns one `std::optional<send_result>`
+* per matching channel (in `Channels...` declaration order among that
+* subset; disengaged for a matching channel that was not an active sender).
+* This is what lets a caller distinguish "channel 2 timed out" from
+* "everything worked" when the hub contains a `reliable_channel`.
+*
+* @par A hub that mixes blocking and non-blocking channels blocks as a whole
+* `reliable_channel::send` busy-polls for an acknowledgement (see
+* `reliable_channel.hpp`'s `@par BLOCKING`). `hub::send()` calls every active,
+* matching sender in sequence, so a `reliable_channel` member's worst-case
+* retry/timeout window delays every other matching channel's send in the
+* same call. This is inherent to combining a blocking and a non-blocking
+* transport in one fan-out call, not something `hub` can hide.
+*
+* @par try_receive_any(): polling without knowing the type in advance
+* `try_receive_any()` polls every active receiver regardless of its
+* `packet_t` and returns `std::optional<any_packet_t>`, where `any_packet_t`
+* is a `std::variant` over the *distinct* packet types in `Channels...`
+* (channels that happen to share a packet type collapse to one alternative).
+* Consume it with `std::visit` and the `etools::meta::overload` helper:
+* ```cpp
+* if (auto pkt = h.try_receive_any()) {
+*     std::visit(etools::meta::overload{
+*         [](small_packet& p) { ... },
+*         [](big_packet& p)   { ... },
+*     }, *pkt);
+* }
+* ```
+*
+* @note Class template argument deduction works without an explicit guide:
+*       `Channels...` is deduced directly from the constructor arguments.
+*       ```cpp
+*       ecomm::hub h{serial_channel, wifi_channel};
+*       ```
+*
 * @example Example usage:
 * @code
-* ecomm::hub<my_packet, my_interface> hub;
+* ecomm::hub h{serial_channel, wifi_channel};   // different packet_t on each
 *
-* my_packet_t p = ...;
-* hub.send(p); // Send via all interfaces
-* auto maybe = hub.try_receive(); // Try receive from any active receiver
+* small_packet p = ...;
+* auto results = h.send(p);                     // Packet deduced; only serial_channel matches
+* auto maybe    = h.try_receive<small_packet>(); // must name Packet -- nothing to deduce from
+* auto any      = h.try_receive_any();           // polls both; std::optional<std::variant<...>>
 * @endcode
 *
 * @author Mark Tikhonov <mtik.philosopher@gmail.com>
@@ -41,155 +125,288 @@
 * See LICENSE file for details.
 *
 * @par Changelog
-* - 2025-07-03 
-*      - Initial creation.
-* - 2025-07-17
-*      - Added static assertion to verify that all interfaces in `Interfaces` template parameter pack
-*        derive from `interface<Interface>` to ensure type safety and guarantee proper base delegation.
-* - 2025-07-21
-*      - Fixed improper namespace usage in `typeset` declarations.
-*      - Added namespace tags for `interface` in static assertion. 
+* - 2025-07-03 Initial creation.
+* - 2025-07-17 Added static assertion to verify that all interfaces in `Interfaces` template parameter pack
+*      derive from `interface<Interface>` to ensure type safety and guarantee proper base delegation.
+* - 2025-07-21 Fixed improper namespace usage in `typeset` declarations. Added namespace tags for
+*      `interface` in static assertion.
+* - 2026-07-14 Full rewrite against the current `channel<Impl, Packet>` / `reliable_channel<...>` API
+*      (the `interface` type this previously targeted no longer exists). Channels are now stored by
+*      reference instead of owned by value. `send()` aggregates a `std::optional<send_result>` per
+*      channel. Validation is duck-typed via `packet_t` + method-signature SFINAE, not inheritance.
+* - 2026-07-15 Dropped the single class-level `Packet` parameter: `hub<Packet, Channels...>` became
+*      `hub<Channels...>`, so a hub may combine channels operating on different packet types (e.g. a
+*      small packet on a UART leaf link and a larger one on a Wi-Fi uplink). `send<Packet>` deduces
+*      `Packet` from its argument like any function template; `try_receive<Packet>` cannot (nothing to
+*      deduce a return type from) and must name `Packet` explicitly. Added `try_receive_any()`,
+*      returning `std::optional<std::variant<...>>` over the distinct packet types in `Channels...`,
+*      for polling without knowing in advance which type is about to arrive; consumed via
+*      `etools::meta::overload` (etools v1.0.4) with `std::visit`.
+* - 2026-07-15 Switched `any_packet_t` from a locally-defined dedup builder to
+*      `etools::meta::unique_variant_t` (etools v1.0.5) -- the same "possibly-repeating pack ->
+*      std::variant of only the distinct types" logic, promoted to etools since it has nothing
+*      ecomm-specific about it.
 */
 #ifndef ECOMM_HUB_HUB_HPP_
 #define ECOMM_HUB_HUB_HPP_
-#include <type_traits>
-#include <tuple>
+#include <array>
 #include <optional>
-#include "../channels/channel.hpp"
-#include <etools/meta/typeset.hpp>
+#include <tuple>
+#include <type_traits>
 
-namespace ecomm{
+#include <etools/meta/overload.hpp>
+#include <etools/meta/traits.hpp>
+#include <etools/meta/typeset.hpp>
+#include <etools/meta/unique_variant.hpp>
+
+#include "../channels/send_result.hpp"
+
+namespace ecomm::details {
+
+    /**
+    * @brief `true` iff `T` behaves like a channel operating on `Packet`.
+    *
+    * "Behaves like" means: exposes `using packet_t = Packet;`, and provides
+    * `send(Packet&)` returning something convertible to
+    * `ecomm::channels::send_result` and `try_receive()` returning exactly
+    * `std::optional<Packet>`. Both `ecomm::channels::channel<Impl, Packet>`
+    * and `ecomm::channels::reliable_channel<Impl, Packet, ...>` satisfy this
+    * without being related by inheritance, which is why this is a
+    * duck-typed trait rather than an `is_base_of` check.
+    *
+    * @tparam T      The candidate channel type.
+    * @tparam Packet The packet type it must operate on.
+    */
+    template<typename T, typename Packet, typename = void>
+    struct is_channel_like : std::false_type {};
+
+    /// @brief Specialization selected when every required member is well-formed.
+    template<typename T, typename Packet>
+    struct is_channel_like<T, Packet, std::void_t<
+        typename T::packet_t,
+        decltype(std::declval<T&>().send(std::declval<Packet&>())),
+        decltype(std::declval<T&>().try_receive())
+    >> : std::bool_constant<
+        std::is_same_v<typename T::packet_t, Packet> and
+        std::is_convertible_v<
+            decltype(std::declval<T&>().send(std::declval<Packet&>())),
+            channels::send_result
+        > and
+        std::is_same_v<
+            decltype(std::declval<T&>().try_receive()),
+            std::optional<Packet>
+        >
+    > {};
+
+    /// @brief Convenience variable template for `is_channel_like`.
+    template<typename T, typename Packet>
+    inline constexpr bool is_channel_like_v = is_channel_like<T, Packet>::value;
+
+    /**
+    * @brief `true` iff `T` is channel-like for its own `T::packet_t`.
+    *
+    * The self-checking counterpart to `is_channel_like<T, Packet>`, used by
+    * `hub`'s validation once `Packet` is no longer a class-wide parameter:
+    * each channel only needs to be internally consistent, not agree with
+    * some external type. SFINAE-safe when `T` has no `packet_t` at all
+    * (falls back to `false`, not a hard error).
+    */
+    template<typename T, typename = void>
+    struct is_self_channel_like : std::false_type {};
+
+    template<typename T>
+    struct is_self_channel_like<T, std::void_t<typename T::packet_t>>
+        : std::bool_constant<is_channel_like_v<T, typename T::packet_t>> {};
+
+    template<typename T>
+    inline constexpr bool is_self_channel_like_v = is_self_channel_like<T>::value;
+
+    /// @brief Number of types in `Ts...` equal to `Packet`.
+    template<typename Packet, typename... Ts>
+    inline constexpr std::size_t count_matching_v = (0 + ... + (std::is_same_v<Ts, Packet> ? 1 : 0));
+
+} // namespace ecomm::details
+
+namespace ecomm {
 
     /**
     * @class hub
-    * @brief Manages multiple communication interfaces for simultaneous packet transmission and reception.
     *
-    * This template class allows the user to define a collection of communication interfaces and control
-    * which ones are currently active for sending and/or receiving data.
+    * @brief Combines several channels -- possibly operating on different
+    *        packet types -- behind one API.
     *
-    * @tparam Packet The type of packet being sent or received by all interfaces.
-    * 
-    * @tparam Interfaces A variadic pack of interface types (e.g., serial, Wi-Fi), each of which must implement
-    *                    the interface API.
-    * 
-    * @warning hub does not perform any validation on the interfaces passed to it, e.g. it won't check whether they 
-    * derive from the actual `interface` class, or whether they support this given packet type.
-    * All of that is the user's responsibility.
-    * 
-    * @note The `hub` class enables all interfaces for sending and receiving by default.
+    * See the file-level documentation above for the ownership model, the
+    * compile-time validations, how `send<Packet>()`'s aggregated result
+    * differs from a single channel's, and `try_receive_any()`.
+    *
+    * @tparam Channels A pack of channel-like types (see
+    *                  `details::is_self_channel_like`), pairwise distinct,
+    *                  each referencing a channel the caller owns and keeps
+    *                  alive for at least as long as this `hub`. Channels may
+    *                  operate on different packet types.
     */
-    template<typename Packet, typename ...Interfaces>
-    class hub{
-    public: 
+    template<typename... Channels>
+    class hub {
+        static_assert(sizeof...(Channels) >= 1,
+            "ecomm::hub: at least one channel is required.");
+        static_assert(etools::meta::is_distinct_v<Channels...>,
+            "ecomm::hub: all Channels must be pairwise distinct types. Use each "
+            "channel's `tag` template parameter to disambiguate multiple instances "
+            "of the same transport (e.g. arduino_serial_channel<Packet, 0> and "
+            "arduino_serial_channel<Packet, 1>).");
+        static_assert((details::is_self_channel_like_v<Channels> and ...),
+            "ecomm::hub: every Channel must expose `using packet_t = /* some type */;` "
+            "and provide `channels::send_result send(packet_t&) noexcept` and "
+            "`std::optional<packet_t> try_receive() noexcept` -- i.e. behave like "
+            "ecomm::channels::channel<Impl, Packet> or "
+            "ecomm::channels::reliable_channel<Impl, Packet, ...>.");
+
+    public:
         /**
-        * @brief Constructs the hub, taking ownership of the provided interface instances.
+        * @brief Per-channel outcome of a fan-out `send<Packet>()`, in the
+        *        declaration order of the `Channels...` subset whose
+        *        `packet_t` is `Packet`.
         *
-        * Initializes the internal tuple of interfaces by moving from the provided arguments.
-        * Performs a static assertion to ensure all provided interface types inherit from
-        * `ecomm::interface::interface`.
-        *
-        * @param args Rvalue references to the interface objects (one for each type in Interfaces...).
+        * Slot `i` is engaged with the `send_result` returned by the `i`-th
+        * `Packet`-matching channel if it was an active sender at the time
+        * of the call, or disengaged if it was not (and therefore was not
+        * sent to at all). Sized to exactly the number of matching channels
+        * -- a channel operating on a different packet type has no slot at
+        * all, rather than a permanently-disengaged one.
         */
-        inline explicit hub(Interfaces&&... args);
+        template<typename Packet>
+        using send_results_t = std::array<std::optional<channels::send_result>, details::count_matching_v<Packet, typename Channels::packet_t...>>;
 
         /**
-        * @brief Enables an interface for sending packets.
+        * @brief A `std::variant` over the distinct packet types in `Channels...`.
         *
-        * Marks the given interface type as active for outbound communication.
-        * Only interfaces explicitly enabled with this method will be used in `send()`.
-        *
-        * @tparam Interface The interface type to activate for sending.
+        * See `try_receive_any()`.
         */
-        template<typename Interface>
-        inline void use_sender();
-        
-        /**
-        * @brief Enables an interface for receiving packets.
-        *
-        * Marks the given interface type as active for inbound communication.
-        * Only interfaces explicitly enabled with this method will be checked in `try_receive()`.
-        *
-        * @tparam Interface The interface type to activate for receiving.
-        */
-        template<typename Interface>
-        inline void use_receiver();
-        
-        /**
-        * @brief Disables an interface for sending packets.
-        *
-        * Marks the given interface type as inactive for outbound communication.
-        * After calling this, the interface will no longer be used in `send()`.
-        *
-        * @tparam Interface The interface type to deactivate for sending.
-        */
-        template<typename Interface>
-        inline void remove_sender();
+        using any_packet_t = etools::meta::unique_variant_t<typename Channels::packet_t...>;
 
         /**
-        * @brief Disables an interface for receiving packets.
+        * @brief Bind a hub to already-constructed channels, enabling all of them.
         *
-        * Marks the given interface type as inactive for inbound communication.
-        * After calling this, the interface will no longer be queried in `try_receive()`.
+        * `hub` stores references, not copies -- see the ownership note in this
+        * file's documentation. Every channel starts enabled for both sending
+        * and receiving; use `remove_sender`/`remove_receiver` to opt one out.
         *
-        * @tparam Interface The interface type to deactivate for receiving.
+        * @param[in] channels One lvalue reference per type in `Channels...`,
+        *                     in the same order. Each must outlive this `hub`.
         */
-        template<typename Interface>
-        inline void remove_receiver();
+        explicit hub(Channels&... channels) noexcept;
+
+        /// @brief Enable `Channel` as an active sender (default: already enabled).
+        template<typename Channel>
+        void use_sender() noexcept;
+
+        /// @brief Enable `Channel` as an active receiver (default: already enabled).
+        template<typename Channel>
+        void use_receiver() noexcept;
+
+        /// @brief Disable `Channel` as a sender; `send()` will skip it.
+        template<typename Channel>
+        void remove_sender() noexcept;
+
+        /// @brief Disable `Channel` as a receiver; `try_receive()`/`try_receive_any()` will skip it.
+        template<typename Channel>
+        void remove_receiver() noexcept;
 
         /**
-        * @brief Sends a packet through all active sender interfaces.
+        * @brief Send a packet through every active sender channel whose
+        *        `packet_t` matches `Packet`.
         *
-        * Iterates over all registered interfaces and sends the packet to those currently
-        * marked as active senders using `use_sender()`.
+        * `Packet` is deduced from `packet`'s type -- no explicit template
+        * argument is needed, exactly as for a single `channel<>::send`.
+        * `static_assert`s that at least one channel in `Channels...`
+        * actually operates on `Packet`.
         *
-        * @param packet The packet to send.
+        * Calls `send(packet)` on each matching channel currently enabled
+        * via `use_sender`, in declaration order, unconditionally (a failure
+        * on one channel does not skip the rest). See the file-level `@par`
+        * on mixing blocking and non-blocking channels for why this call's
+        * worst-case latency is the sum of its matching members'.
+        *
+        * @tparam Packet Deduced from `packet`.
+        * @param[in,out] packet Packet to send. Each active matching channel
+        *                       may modify its FCS field via its own sealing step.
+        *
+        * @return One `std::optional<send_result>` per `Packet`-matching
+        *         channel, in declaration order among that subset;
+        *         disengaged for ones that were not active senders.
         */
-        inline void send(Packet &packet);
-        
+        template<typename Packet>
+        [[nodiscard]] send_results_t<Packet> send(Packet& packet) noexcept;
+
         /**
-        * @brief Attempts to receive a packet from any active receiver interface.
+        * @brief Attempt to receive a `Packet` from any active receiver
+        *        channel whose `packet_t` is `Packet`.
         *
-        * Iterates through all interfaces marked as active receivers and invokes their
-        * `try_receive()` method. Returns the first successfully received packet, if any.
+        * Unlike `send`, `Packet` cannot be deduced here -- there is no
+        * argument to deduce a return type from, a hard rule of C++
+        * template argument deduction -- so it must be named explicitly:
+        * `hub.try_receive<small_packet>()`. `static_assert`s that at least
+        * one channel in `Channels...` actually operates on `Packet`.
         *
-        * @return An `std::optional<Packet>` containing the received packet, or `std::nullopt` if none.
+        * Polls each `Packet`-matching channel currently enabled via
+        * `use_receiver`, in declaration order among that subset, and
+        * returns the first packet found. Channels after the first hit are
+        * not polled on this call.
+        *
+        * @tparam Packet Must be named explicitly.
+        * @return The first available packet, or `std::nullopt` if no active
+        *         matching receiver had one.
         */
-        inline std::optional<Packet> try_receive();
+        template<typename Packet>
+        [[nodiscard]] std::optional<Packet> try_receive() noexcept;
+
+        /**
+        * @brief Attempt to receive a packet of any type from any active
+        *        receiver channel.
+        *
+        * Use this when you do not know in advance which packet type is
+        * about to arrive -- e.g. a coordinator servicing a small-packet
+        * leaf link and a large-packet uplink from one poll call. Polls
+        * every active receiver channel, in `Channels...` declaration
+        * order, and returns the first packet found, wrapped in
+        * `any_packet_t`. Consume the result with `std::visit` and
+        * `etools::meta::overload` (see the file-level example).
+        *
+        * @return The first available packet across every active receiver,
+        *         or `std::nullopt` if none had one.
+        */
+        [[nodiscard]] std::optional<any_packet_t> try_receive_any() noexcept;
 
     private:
-        /**
-        * @brief Sends a packet through a single interface, conditionally.
-        *
-        * Helper function used in fold expressions. Checks whether the specified interface
-        * is currently marked as active for sending before calling `send()` on it.
-        *
-        * @tparam Interface The type of the interface.
-        * @param interface Reference to the interface instance.
-        * @param packet The packet to send.
-        */
-        template<typename Interface>
-        inline void maybe_send(Interface& interface, Packet& packet);
-        
-        /**
-        * @brief Attempts to receive a packet from a single interface, conditionally.
-        *
-        * Helper function used in fold expressions. Checks whether the specified interface
-        * is currently marked as active for receiving before calling `try_receive()` on it.
-        *
-        * @tparam Interface The type of the interface.
-        * @param interface Reference to the interface instance.
-        * @return An optional packet if received, or `std::nullopt` otherwise.
-        */
-        template<typename Interface>
-        inline std::optional<Packet> maybe_try_receive(Interface& interface);
+        /// @brief Send to a single channel if it is an active sender; record the result.
+        template<typename Channel>
+        void maybe_send(Channel& channel, typename Channel::packet_t& packet, std::optional<channels::send_result>& out) noexcept;
 
+        /// @brief Poll a single channel if it is an active receiver.
+        template<typename Channel>
+        std::optional<typename Channel::packet_t> maybe_try_receive(Channel& channel) noexcept;
 
-        std::tuple<Interfaces...> _interfaces; ///< Tuple of communication interfaces.
-        etools::meta::typeset<Interfaces...> _sender_statuses; ///< Typeset for managing flags associated with sender interfaces.
-        etools::meta::typeset<Interfaces...> _receiver_statuses; ///< Typeset for managing flags associated with receiver interfaces.
+        /// @brief `send<Packet>`'s per-channel visitor: no-ops for a non-matching Channel.
+        template<typename Packet, typename Channel>
+        void maybe_send_if_matching(Channel& channel, Packet& packet, send_results_t<Packet>& results, std::size_t& next) noexcept;
 
-        // TODO: restore channel base static_assert once hub is redesigned for heterogeneous channels.
+        /// @brief `try_receive<Packet>`'s per-channel visitor: no-ops for a non-matching Channel.
+        template<typename Packet, typename Channel>
+        bool try_receive_if_matching(Channel& channel, std::optional<Packet>& result) noexcept;
+
+        std::tuple<Channels&...> _channels; ///< Non-owning references to the combined channels.
+        etools::meta::typeset<Channels...> _sender_statuses;   ///< Per-type active-sender flags.
+        etools::meta::typeset<Channels...> _receiver_statuses; ///< Per-type active-receiver flags.
     };
+
+    /**
+    * @brief `Channels...` deduces directly from the constructor arguments;
+    *        no explicit guide is needed for that alone, but one is declared
+    *        for documentation and to pin the deduction to lvalue references
+    *        (matching the constructor) rather than something looser.
+    */
+    template<typename... Channels>
+    hub(Channels&...) -> hub<Channels...>;
 
 } // namespace ecomm
 

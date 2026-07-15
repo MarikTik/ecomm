@@ -68,7 +68,7 @@ this firmware directly.
   - [The three-tier error ladder](#the-three-tier-error-ladder)
   - [No dynamic allocation](#no-dynamic-allocation)
   - [Strategy via templates, not virtuals](#strategy-via-templates-not-virtuals)
-- [The `hub` module (unmaintained)](#the-hub-module-unmaintained)
+- [The `hub` module](#the-hub-module)
 - [The Python Client](#the-python-client)
 - [Examples](#examples)
 - [Edge Cases & Behavior](#edge-cases--behavior)
@@ -562,16 +562,70 @@ layer.
 
 ---
 
-## The `hub` module (unmaintained)
+## The `hub` module
 
-`ecomm/hub/hub.hpp` predates the 2026-05 protocol/channel rewrite and still references an `interface`
-API (`send`/`try_receive` on a generic "interface" type) that no longer exists anywhere else in this
-codebase — it has not been updated to the current `channel<Impl, Packet>` design, is not included by
-`channels.hpp`, is not exercised by the test suite, and does not currently compile against the rest
-of the library. It is not deleted (in case its dispatch-by-active-flag design is revived for a future
-multi-transport `hub` built on `channel<>`), but treat it as historical, not usable, code today. If
-you need to fan a packet out across several channels, do so explicitly in application code until a
-rewritten `hub` lands.
+`ecomm::hub<Channels...>` (`ecomm/hub/hub.hpp`) combines several channels behind one
+`send()`/`try_receive()` surface — a USB hub for communication links: plug in a UART leaf link and a
+Wi-Fi link, then send/receive without caring which one a packet went out or came in on. Any mix of
+`channel<Impl, Packet>` and `reliable_channel<Impl, Packet, ...>` instances is accepted — and,
+unlike a single `channel<>`, the channels in one hub need not share a `Packet` type. A coordinator's
+tight link to its own hardware and its looser uplink to the outside world routinely want different
+packet sizes; `hub` accepts both at once.
+
+```cpp
+arduino_serial_channel<small_packet> serial_link{Serial};   // e.g. the robot's own actuators
+arduino_wifi_channel<big_packet>     wifi_link{server};     // e.g. the outside world
+
+hub h{serial_link, wifi_link};   // CTAD deduces Channels... from the arguments
+
+(void)h.send(out);                            // Packet deduced from out's type
+if (auto in = h.try_receive<small_packet>()) { /* first small_packet found */ }
+if (auto in = h.try_receive_any()) {          // don't know which type is arriving? poll everything
+    std::visit(etools::meta::overload{
+        [](small_packet&) { /* ... */ },
+        [](big_packet&)   { /* ... */ },
+    }, *in);
+}
+```
+
+`send()` deduces `Packet` from its argument like any function template, so it reads exactly like the
+homogeneous case even though it only reaches the subset of channels whose `packet_t` matches.
+`try_receive<Packet>()` cannot deduce `Packet` — there's no argument to deduce a return type from,
+a hard rule of C++ template argument deduction — so it must be named explicitly. `try_receive_any()`
+is the way to poll without knowing the type in advance: it returns `std::optional<any_packet_t>`,
+where `any_packet_t` is a `std::variant` over the *distinct* packet types in the hub, consumable with
+`std::visit` and `etools::meta::overload` (the classic "overloaded lambda set" idiom) shown above.
+
+**Ownership: hub does not own its channels.** It stores references to channels the caller already
+constructed and keeps alive elsewhere (typically as `static`/file-scope objects, exactly like every
+channel already does for the hardware it wraps). This is deliberate: `esp_async_wifi_channel`
+registers its own address with AsyncTCP at construction time, so an owning container that *moves* a
+channel into itself after construction would leave AsyncTCP holding a dangling pointer. Reference
+storage makes that bug structurally impossible — a channel is never relocated.
+
+**Two `static_assert`s fire at `hub<...>`'s own instantiation point**, not deep inside some call
+site, if misused: every channel must be "channel-like" for its own `packet_t` (expose `using
+packet_t = SomePacket;` and the same `send`/`try_receive` signatures `channel<>` and
+`reliable_channel<>` both have — checked structurally, not via `is_base_of`, since `reliable_channel`
+isn't derived from `channel<>`), and every channel type in the pack must be pairwise distinct (use
+each channel's `tag` parameter to disambiguate two instances of the same transport). A third check is
+per-call: `send<Packet>`/`try_receive<Packet>` each `static_assert` that at least one channel in the
+hub actually operates on the requested `Packet` — naming a type no channel supports is a compile
+error, not a silent no-op.
+
+**`send<Packet>()` returns one `std::optional<send_result>` per `Packet`-matching channel**, in
+declaration order among that subset, disengaged for a channel that wasn't an active sender — so a
+`reliable_channel` timing out inside a hub is visible to the caller, not silently swallowed. Note
+that mixing a blocking `reliable_channel` and a non-blocking channel operating on the same packet
+type means `send()`'s worst-case latency for that call is the sum of its matching members': hub
+calls every active, matching sender in sequence and cannot parallelize a blocking one away.
+
+`use_sender<Channel>()` / `remove_sender<Channel>()` and `use_receiver<Channel>()` /
+`remove_receiver<Channel>()` toggle a channel's participation at runtime (every channel starts
+enabled for both). `try_receive<Packet>()` polls active, `Packet`-matching receivers in declaration
+order and returns the first packet found — a channel that always has data can starve later channels
+in the pack within a single call; call again to keep draining. `try_receive_any()` follows the same
+declaration-order-wins rule across *all* active receivers regardless of packet type.
 
 ---
 
@@ -638,8 +692,10 @@ table required to keep two independently-written peers wire-compatible.
    the one built-in example of imposing a sub-structure on it, and
    [`ecomm-python`'s README](ecomm-python/README.md#serialization-is-your-responsibility) for the
    general principle stated explicitly.
-6. **`hub/` is unmaintained** — see [above](#the-hub-module-unmaintained). Do not build new work on
-   it without first bringing it in line with the current `channel<>` design.
+6. **`hub` composes channels; it holds no packet-type-to-handler dispatch table.** It fans a packet
+   out to every active sender and returns the first packet any active receiver has — deciding what
+   to *do* with a received packet (route it to a handler, an application task, ...) is out of scope
+   for `hub`, same as it is for a single `channel<>`.
 7. **Scoped to a small, fixed-size-packet, single-owner protocol.** Many conventions from general
    wire-protocol design — variable-length messages, streaming validation, heterogeneous-MTU links,
    multi-tenant routing — solve problems this protocol doesn't have. Don't assume they apply here
@@ -666,8 +722,8 @@ table required to keep two independently-written peers wire-compatible.
   Protocol Buffers, FlatBuffers, CBOR, etc.
 - Variable-length messages, streaming/partial validation, or heterogeneous-MTU links — ecomm's fixed
   packet size and flat wire format don't fit that shape.
-- A multi-transport dispatcher today — `hub/` exists but is unmaintained (see
-  [above](#the-hub-module-unmaintained)); you'll need to fan out across channels yourself for now.
+- Packet-type-to-handler dispatch — `hub` composes channels, not handlers; see
+  [above](#the-hub-module).
 
 ---
 
@@ -684,10 +740,11 @@ cd build && ctest --output-on-failure
 tools/run_tests.sh
 ```
 
-231 tests across eight binaries: `test_packet_header`, `test_packet`, `test_validator`, `test_error`
+249 tests across nine binaries: `test_packet_header`, `test_packet`, `test_validator`, `test_error`
 (protocol layer); `test_arduino_serial_channel`, `test_arduino_wifi_channel`,
 `test_esp_async_wifi_channel`, `test_reliable_channel` (channel layer, against drop-in mock Arduino/
-AsyncTCP headers so the test suite runs on a plain host with no hardware or Arduino toolchain).
+AsyncTCP headers so the test suite runs on a plain host with no hardware or Arduino toolchain);
+`test_hub` (a pure-software mock transport, no hardware headers needed).
 
 ---
 
@@ -721,11 +778,11 @@ ecomm/
       esp_async_wifi_channel.hpp/.tpp
       reliable_channel.hpp/.tpp     # ack/retry wrapper around any channel<>
     hub/
-      hub.hpp/.tpp                # unmaintained -- see "The hub module" above
+      hub.hpp/.tpp                # hub<Channels...>: combines several channels, possibly different Packet types
   ecomm-python/                 # the Python client (see its own README)
   examples/
     async_tcp/                    # Raspberry Pi <-> ESP32 worked example (spans both languages)
-  tests/                         # GoogleTest suite, mirrors ecomm/ (protocol/, channels/)
+  tests/                         # GoogleTest suite, mirrors ecomm/ (protocol/, channels/, hub/)
   tools/
     run_tests.sh                 # build + run with an aggregated pass/fail summary
   project/

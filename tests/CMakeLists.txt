@@ -57,3 +57,9 @@ target_compile_definitions(test_esp_async_wifi_channel PRIVATE ESP8266=1)
 
 # reliable_channel -- pure software mock Impl, no hardware headers needed.
 ecomm_add_test(test_reliable_channel channels/test_reliable_channel.cpp)
+
+# ---------------------------------------------------------------------------------------
+# hub -- pure software mock Impls, no hardware headers needed.
+# ---------------------------------------------------------------------------------------
+
+ecomm_add_test(test_hub hub/test_hub.cpp)
