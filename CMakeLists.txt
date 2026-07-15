@@ -29,7 +29,7 @@ set(ETOOLS_BUILD_TESTS OFF CACHE BOOL "Disable etools unit tests" FORCE)
 FetchContent_Declare(
   etools
   GIT_REPOSITORY https://github.com/MarikTik/etools.git
-  GIT_TAG v1.0.2
+  GIT_TAG v1.0.5
 )
 FetchContent_MakeAvailable(etools)
 
