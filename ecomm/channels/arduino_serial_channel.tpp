@@ -2,7 +2,7 @@
 /**
 * @file arduino_serial_channel.tpp
 *
-* @brief Implementation of arduino_serial_channel<Packet, tag>.
+* @brief Implementation of arduino_serial_channel<tag>.
 *
 * @author Mark Tikhonov <mtik.philosopher@gmail.com>
 *
@@ -16,6 +16,8 @@
 * @par Changelog
 * - 2026-05-26 Renamed from arduino_serial_interface.tpp; `delegate_` -> `do_`;
 *              fixed missing local variable in do_try_receive.
+* - 2026-07-16 do_send/do_try_receive became member templates over Packet,
+*      matching the class-level Packet parameter's removal.
 */
 #ifndef ECOMM_ARDUINO_SERIAL_CHANNEL_TPP_
 #define ECOMM_ARDUINO_SERIAL_CHANNEL_TPP_
@@ -25,15 +27,16 @@
 
 namespace ecomm::channels {
 
-    template<typename Packet, std::uint8_t tag>
-    arduino_serial_channel<Packet, tag>::arduino_serial_channel(
+    template<std::uint8_t tag>
+    arduino_serial_channel<tag>::arduino_serial_channel(
         HardwareSerial& serial
     ) noexcept
         : _serial{serial}
     {}
 
-    template<typename Packet, std::uint8_t tag>
-    bool arduino_serial_channel<Packet, tag>::do_try_receive(Packet& out) noexcept {
+    template<std::uint8_t tag>
+    template<typename Packet>
+    bool arduino_serial_channel<tag>::do_try_receive(Packet& out) noexcept {
         static_assert(std::is_trivially_copyable_v<Packet>,
                       "Packet must be trivially copyable");
         if (static_cast<std::size_t>(_serial.available()) < sizeof(Packet))
@@ -42,8 +45,9 @@ namespace ecomm::channels {
         return true;
     }
 
-    template<typename Packet, std::uint8_t tag>
-    void arduino_serial_channel<Packet, tag>::do_send(const Packet& packet) noexcept {
+    template<std::uint8_t tag>
+    template<typename Packet>
+    void arduino_serial_channel<tag>::do_send(const Packet& packet) noexcept {
         static_assert(std::is_trivially_copyable_v<Packet>,
                       "Packet must be trivially copyable");
         _serial.write(reinterpret_cast<const std::uint8_t*>(&packet), sizeof(Packet));

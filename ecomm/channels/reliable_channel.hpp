@@ -15,7 +15,7 @@
 * stalls are unacceptable. An asynchronous variant is not yet implemented.
 *
 * `reliable_channel<Impl, Packet, ClockPolicy, MaxRetries, BufferDepth>`
-* wraps a `channel<Impl, Packet>` and adds stop-and-wait reliability:
+* wraps an `Impl` (itself a `channel<Impl>`) and adds stop-and-wait reliability:
 *
 * - `send` stamps `header.seq_num`, transmits the packet, then polls
 *   for a matching ack. If no ack arrives within `ClockPolicy::timeout_ticks()`
@@ -28,6 +28,22 @@
 *   the buffer is empty). Duplicate packets (seq_num mismatch) are re-acked
 *   and silently discarded. Ack packets (header_options::ack set) are consumed
 *   internally and never surfaced to the caller.
+*
+* @par Why Packet stays fixed here, unlike channel<Impl>
+* `channel<Impl>` accepts any `Packet` per call because it is stateless
+* between calls. `reliable_channel` cannot make the same offer: `_tx_seq` /
+* `_rx_seq` and the inbound staging ring are per-instance state describing
+* *one* ongoing packet stream, not a fact about `Impl`. Multiplexing several
+* packet types through one `reliable_channel` would mean either one shared
+* sequence-number space across unrelated streams (breaking the duplicate/ack
+* matching this class exists to provide) or per-type state the class does not
+* track. Use one `reliable_channel` instance per packet type. `reliable_channel`
+* owns its `Impl` by value (constructed in place from the arguments you pass
+* to `reliable_channel`'s own constructor -- see below), so two
+* `reliable_channel`s never share one `Impl` object; if the underlying
+* transport is itself stateless (e.g. `arduino_serial_channel<>`, which holds
+* only a `HardwareSerial&` reference), construct one `reliable_channel` per
+* `Packet`, each pointed at the same physical serial port.
 *
 * @par Constraints
 * - `Packet::header_t::has_seq_num` must be `true`. A `static_assert` enforces
@@ -56,9 +72,8 @@
 *   are independent, eliminating any ambiguity between data and ack traffic.
 *
 * @par No dynamic allocation
-* All storage is in-object: the contained `channel<Impl, Packet>`, a
-* `Packet[BufferDepth]` staging array, and two `std::uint8_t` sequence
-* counters.
+* All storage is in-object: the contained `Impl`, a `Packet[BufferDepth]`
+* staging array, and two `std::uint8_t` sequence counters.
 *
 * @author Mark Tikhonov <mtik.philosopher@gmail.com>
 *
@@ -72,6 +87,14 @@
 * @par Changelog
 * - 2026-05-28 Initial creation.
 * - 2026-07-14 Added public `packet_t` alias for generic code (`ecomm::hub`).
+* - 2026-07-16 `channel<Impl, Packet>` became `channel<Impl>` (Packet moved to a
+*      per-call template parameter there). `reliable_channel` keeps its own
+*      `Packet` fixed per instance -- its ack/retry/staging state is inherently
+*      tied to one packet stream, unlike the now-stateless `channel<Impl>` --
+*      so only its calls into the wrapped `Impl` changed: `_channel.try_receive()`
+*      became `_channel.template try_receive<Packet>()` (no longer deducible with
+*      zero arguments); `_channel.send(packet)` was already fine, since `Packet`
+*      deduces from `packet` exactly as before.
 */
 #ifndef ECOMM_CHANNELS_RELIABLE_CHANNEL_HPP_
 #define ECOMM_CHANNELS_RELIABLE_CHANNEL_HPP_
@@ -88,13 +111,15 @@ namespace ecomm::channels {
     /**
     * @class reliable_channel
     *
-    * @brief Stop-and-wait reliable wrapper around `channel<Impl, Packet>`.
+    * @brief Stop-and-wait reliable wrapper around an `Impl` (a `channel<Impl>`).
     *
     * Exposes the same `send` / `try_receive` surface as `channel` but adds
     * acknowledgement, retransmission, and duplicate filtering.
     *
-    * @tparam Impl        Hardware transport. Must satisfy the same `do_send` /
-    *                     `do_try_receive` contract as for `channel<Impl, Packet>`.
+    * @tparam Impl        Hardware transport, itself a `channel<Impl>`. Must
+    *                     satisfy the same `do_send` / `do_try_receive`
+    *                     contract as `channel<Impl>`'s other users, for this
+    *                     class's own fixed `Packet`.
     * @tparam Packet      Fixed packet type. Must satisfy
     *                     `Packet::header_t::has_seq_num == true`.
     * @tparam ClockPolicy Provides `tick_type`, `now()`, and `timeout_ticks()`.

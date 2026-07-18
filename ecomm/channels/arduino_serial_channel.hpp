@@ -2,13 +2,16 @@
 /**
 * @file arduino_serial_channel.hpp
 *
-* @brief Typed serial channel for packet-based messaging on Arduino platforms.
+* @brief Serial channel for packet-based messaging on Arduino platforms.
 *
 * @ingroup ecomm_channels ecomm::channels
 *
-* Provides `arduino_serial_channel<Packet, tag>`, a concrete `channel<>` for
-* UART communication via Arduino's `HardwareSerial`. The channel reads and
-* writes fixed-size packets as raw binary blobs. Validation and sealing are
+* Provides `arduino_serial_channel<tag>`, a concrete `channel<>` for UART
+* communication via Arduino's `HardwareSerial`. The channel reads and writes
+* packets as raw binary blobs; the packet type is a template parameter of
+* `send`/`try_receive` themselves (inherited from `channel<>`), not of this
+* class, so one instance can carry as many distinct packet types as the
+* caller needs over the same physical UART. Validation and sealing are
 * handled transparently by the `channel<>` base.
 *
 * @note Only compiled when the `ARDUINO` macro is defined.
@@ -27,6 +30,11 @@
 * @par Changelog
 * - 2026-05-26 Renamed from arduino_serial_interface; Packet baked into type;
 *              `delegate_` -> `do_`.
+* - 2026-07-16 Dropped the class-level `Packet` parameter -- `do_send`/
+*      `do_try_receive` are now member templates over `Packet`, matching
+*      `channel<Impl>`'s per-call packet type. This channel has no internal
+*      state sized to a packet (it is a pure byte passthrough), so nothing
+*      about it required fixing one packet type in the first place.
 */
 #ifndef ECOMM_ARDUINO_SERIAL_CHANNEL_HPP_
 #define ECOMM_ARDUINO_SERIAL_CHANNEL_HPP_
@@ -45,19 +53,20 @@ namespace ecomm::channels {
     *
     * @brief Serial UART channel for Arduino platforms.
     *
-    * Wraps a `HardwareSerial` instance and exposes typed `send`/`try_receive`
-    * via the `channel<>` base. Use the `tag` parameter to distinguish between
-    * multiple serial ports (e.g. `Serial`, `Serial1`, `Serial2`).
+    * Wraps a `HardwareSerial` instance and exposes typed `send<Packet>`/
+    * `try_receive<Packet>` via the `channel<>` base, for any `Packet` type the
+    * caller names -- this class holds no per-packet state. Use the `tag`
+    * parameter to distinguish between multiple serial ports (e.g. `Serial`,
+    * `Serial1`, `Serial2`).
     *
-    * @tparam Packet Packet type this channel operates on.
-    * @tparam tag    Compile-time tag to distinguish multiple instances.
+    * @tparam tag Compile-time tag to distinguish multiple instances.
     *
     * @warning Using two instances with the same `tag` and the same serial
     *          port leads to undefined behavior.
     */
-    template<typename Packet, std::uint8_t tag = 0>
+    template<std::uint8_t tag = 0>
     class arduino_serial_channel
-        : public channel<arduino_serial_channel<Packet, tag>, Packet>
+        : public channel<arduino_serial_channel<tag>>
     {
     public:
         /**
@@ -69,7 +78,7 @@ namespace ecomm::channels {
         explicit arduino_serial_channel(HardwareSerial& serial) noexcept;
 
     private:
-        friend class channel<arduino_serial_channel<Packet, tag>, Packet>;
+        friend class channel<arduino_serial_channel<tag>>;
 
         /**
         * @brief Read one packet's worth of bytes from the serial port.
@@ -78,9 +87,11 @@ namespace ecomm::channels {
         * fewer than `sizeof(Packet)` bytes are available; otherwise reads
         * exactly `sizeof(Packet)` bytes into `out`.
         *
+        * @tparam Packet Deduced from `out`'s type.
         * @param[out] out Destination packet buffer.
         * @return `true` if a complete packet was read, `false` otherwise.
         */
+        template<typename Packet>
         bool do_try_receive(Packet& out) noexcept;
 
         /**
@@ -89,8 +100,10 @@ namespace ecomm::channels {
         * Called by `channel::send` after sealing. Writes exactly
         * `sizeof(Packet)` bytes.
         *
+        * @tparam Packet Deduced from `packet`'s type.
         * @param[in] packet Packet to transmit.
         */
+        template<typename Packet>
         void do_send(const Packet& packet) noexcept;
 
         HardwareSerial& _serial; ///< Bound hardware serial port.

@@ -2,7 +2,7 @@
 /**
 * @file channel.tpp
 *
-* @brief Implementation of channel<Impl, Packet> send/try_receive.
+* @brief Implementation of channel<Impl>::send<Packet>/try_receive<Packet>.
 *
 * @ingroup ecomm_channels ecomm::channels
 *
@@ -22,6 +22,9 @@
 *              try_receive() now returns std::optional<Packet> (was bool + out-param).
 * - 2026-05-28 try_receive() filters on receiver_id for network-topology packets:
 *              accepts ECOMM_BOARD_ID (unicast) and 255 (broadcast); drops others.
+* - 2026-07-16 Packet moved from a class template parameter to a per-method one;
+*              `_validator` member replaced by a local, stateless `validator<Packet>{}`
+*              instantiated fresh in each call (validator has no state to persist).
 */
 #ifndef ECOMM_CHANNELS_CHANNEL_TPP_
 #define ECOMM_CHANNELS_CHANNEL_TPP_
@@ -30,18 +33,20 @@
 
 namespace ecomm::channels {
 
-    template<typename Impl, typename Packet>
-    send_result channel<Impl, Packet>::send(Packet& packet) noexcept {
-        _validator.seal(packet);
+    template<typename Impl>
+    template<typename Packet>
+    send_result channel<Impl>::send(Packet& packet) noexcept {
+        protocol::validator<Packet>{}.seal(packet);
         static_cast<Impl*>(this)->do_send(packet);
         return send_result::ok;
     }
 
-    template<typename Impl, typename Packet>
-    std::optional<Packet> channel<Impl, Packet>::try_receive() noexcept {
+    template<typename Impl>
+    template<typename Packet>
+    std::optional<Packet> channel<Impl>::try_receive() noexcept {
         Packet out{};
         if (not static_cast<Impl*>(this)->do_try_receive(out)) return std::nullopt;
-        if (not _validator.is_valid(out))                      return std::nullopt;
+        if (not protocol::validator<Packet>{}.is_valid(out))   return std::nullopt;
 
         if constexpr (Packet::header_t::has_node_ids) {
             constexpr auto broadcast = static_cast<std::uint8_t>(0xFFu);

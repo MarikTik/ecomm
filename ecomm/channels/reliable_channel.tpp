@@ -17,6 +17,9 @@
 *
 * @par Changelog
 * - 2026-05-28 Initial creation.
+* - 2026-07-16 `_channel.try_receive()` calls became
+*      `_channel.template try_receive<Packet>()` (channel<Impl>::try_receive is
+*      now templated on Packet and no longer deducible with zero arguments).
 */
 #ifndef ECOMM_CHANNELS_RELIABLE_CHANNEL_TPP_
 #define ECOMM_CHANNELS_RELIABLE_CHANNEL_TPP_
@@ -67,7 +70,7 @@ reliable_channel<Impl, Packet, ClockPolicy, MaxRetries, BufferDepth>
     Packet out{};
     if (stage_pop(out)) return out;
 
-    auto incoming = _channel.try_receive();
+    auto incoming = _channel.template try_receive<Packet>();
     if (not incoming) return std::nullopt;
 
     Packet& pkt = *incoming;
@@ -107,7 +110,7 @@ bool
 reliable_channel<Impl, Packet, ClockPolicy, MaxRetries, BufferDepth>
     ::poll_ack(std::uint8_t seq) noexcept
 {
-    auto incoming = _channel.try_receive();
+    auto incoming = _channel.template try_receive<Packet>();
     if (not incoming) return false;
 
     const Packet& pkt = *incoming;

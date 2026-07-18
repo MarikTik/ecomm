@@ -6,9 +6,13 @@
 *
 * @defgroup ecomm_channels ecomm::channels
 *
-* A channel is a self-contained, typed, two-way communication endpoint.
-* Each channel is bound to a single `packet<>` configuration and handles
-* validation (on receive) and sealing (on send) transparently.
+* A channel is a self-contained, two-way communication endpoint. The packet
+* type is a template parameter of `send`/`try_receive` themselves, not of the
+* channel -- most concrete channels here can carry several distinct `packet<>`
+* configurations through one instance (see `channel.hpp`); `reliable_channel`
+* is the one exception, fixing its own packet type per instance (see its own
+* documentation for why). Validation (on receive) and sealing (on send) are
+* handled transparently.
 *
 * Concrete channels are conditionally compiled based on platform capabilities:
 * - `arduino_serial_channel`     --  UART via `HardwareSerial` (requires `ARDUINO`).

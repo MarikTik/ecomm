@@ -6,49 +6,96 @@
 *
 * @ingroup ecomm_channels ecomm::channels
 *
-* Provides `esp_async_wifi_channel<Packet, QueueDepth>`, a non-blocking typed
-* channel built on top of the AsyncTCP (ESP32) or ESPAsyncTCP (ESP8266) library.
-* The public API is identical to every other `channel<>` concrete implementation:
-* `send(Packet&)` and `try_receive(Packet&)`.
+* Provides `esp_async_wifi_channel<BufferCapacity>`, a non-blocking channel
+* built on top of the AsyncTCP (ESP32) or ESPAsyncTCP (ESP8266) library. The
+* public API is identical to every other `channel<>` concrete implementation:
+* `send<Packet>(Packet&)` and `try_receive<Packet>()`.
 *
 * @par Why async
 * The synchronous `WiFiServer` / `WiFiClient` API blocks until a client connects
 * or bytes arrive, which stalls the entire microcontroller loop. AsyncTCP drives
 * the TCP stack from a background FreeRTOS task (ESP32) or from interrupt context
 * (ESP8266) and fires data callbacks as bytes arrive. The channel accumulates
-* incoming bytes in a staging buffer and moves complete packets into a fixed-depth
-* ring queue, keeping the main loop always responsive.
+* incoming bytes in a fixed-capacity byte ring buffer, keeping the main loop
+* always responsive.
+*
+* @par A byte ring, not a packet ring -- Packet is per-call, like every other channel<>
+* Earlier versions of this channel fixed one `Packet` type at construction and
+* kept a ring of `Packet`-sized slots, because the AsyncTCP data callback
+* needed to know a packet's byte length to decide when a complete unit had
+* arrived. This version instead buffers **raw bytes** in a ring of
+* `BufferCapacity` bytes -- the callback has no notion of "a packet" at all,
+* it simply appends whatever bytes AsyncTCP delivers. Framing happens entirely
+* on the read side: `try_receive<Packet>()` (like every other `channel<>`)
+* checks whether at least `sizeof(Packet)` bytes are currently buffered and,
+* if so, pops exactly that many. This is what lets one `esp_async_wifi_channel`
+* instance carry several distinct `Packet` types over the same TCP connection,
+* consistent with `arduino_serial_channel` and `arduino_wifi_channel`.
 *
 * @par Internal architecture
 * ```
 * [TCP task / ISR]
 *     onData callback
-*         -> accumulate into _staging (sizeof(Packet) bytes)
-*         -> on complete packet: push into _queue (guarded by critical section)
+*         -> append raw bytes into the byte ring (guarded by critical section)
 *
 * [main loop]
-*     try_receive(out)
-*         -> pop from _queue (guarded by critical section)
+*     try_receive<Packet>(out)
+*         -> if >= sizeof(Packet) bytes buffered, pop that many (guarded)
 *         -> validate via channel<> base
 * ```
+*
+* @par Overflow resets to a clean run at offset 0
+* Because the ring holds undifferentiated bytes, there is no way to know, at
+* buffer time, where the next packet boundary falls -- so an overflow (this
+* delivery doesn't fit in the remaining free space) cannot be resolved by
+* dropping precisely one packet's worth of bytes the way the old Packet-typed
+* ring could. Instead, `on_data` resets the ring to a clean run starting at
+* offset 0 and places this delivery there, discarding whatever was buffered
+* and not yet read. In the overwhelmingly common case -- an existing backlog
+* plus this delivery together don't fit, but the delivery alone does -- the
+* new delivery is kept whole and untorn; only in the rarer case of a single
+* delivery larger than the entire ring is it itself truncated (its first
+* `BufferCapacity - 1` bytes are kept). Either way, whether the retained
+* bytes start exactly on a packet boundary depends on whether the discarded
+* backlog itself ended cleanly on one, which `on_data` has no way to know;
+* `try_receive<Packet>()` calls after an overflow may therefore still read
+* misaligned data until enough bytes have flowed past to resync (rejected by
+* `validator<Packet>::is_valid`, so nothing structurally invalid is ever
+* handed to the caller). Size `BufferCapacity` generously relative to your
+* packet size and expected burst rate to make overflow itself vanishingly
+* unlikely in practice.
+*
+* @par Disconnect clears the entire ring
+* For the same reason, a disconnect clears **all** buffered bytes, including
+* any complete-but-not-yet-read packets -- not just a trailing partial one.
+* With no packet-boundary information at buffer time, there is no way to tell
+* "a complete packet awaiting `try_receive`" apart from "a partial packet cut
+* short by the disconnect", so the only way to guarantee bytes from two
+* different connections never blend into one corrupted phantom packet is to
+* discard everything at the connection boundary. (The previous Packet-typed
+* ring could and did preserve already-completed packets across a disconnect;
+* this version trades that away for the flexibility of not fixing a packet
+* type in the first place.)
+*
+* @par No dynamic allocation
+* All storage is compile-time fixed: `_ring` is a `std::array<std::byte,
+* BufferCapacity>`. No heap allocation ever occurs in this channel.
 *
 * @par Concurrency note
 * This channel is the *only* component in ecomm that requires synchronisation.
 * The need is platform-imposed: AsyncTCP delivers data on a task/ISR that runs
 * concurrently with user code. A minimal critical-section guard (platform-selected
-* at compile time) protects only the ring-queue head/tail update  --  the staging
-* buffer is touched exclusively from the callback and needs no lock.
+* at compile time) protects only the ring's head/tail index updates and the
+* size check that precedes each copy -- the copies themselves happen outside
+* the lock (see `on_data`/`do_try_receive` for the invariant that makes this
+* safe: the producer only ever writes into the not-yet-exposed free region,
+* and the consumer only ever reads the already-committed region, so the two
+* never touch the same bytes without a lock actually being needed).
 *
 * On ESP32 (dual-core): `taskENTER_CRITICAL` / `taskEXIT_CRITICAL` with a
 * `portMUX_TYPE` spinlock  --  safe across cores.
 * On ESP8266 (single-core): `noInterrupts()` / `interrupts()`  --  sufficient since
 * the TCP callback fires from interrupt context, not a parallel core.
-*
-* @par No dynamic allocation
-* All storage is compile-time fixed:
-* - `_slots`  --  `std::array<Packet, QueueDepth>` ring buffer.
-* - `_staging`  --  `std::byte[sizeof(Packet)]` partial-packet accumulator.
-* Both live as class members; no heap allocation ever occurs in this channel.
 *
 * @par Platform guard
 * Compiled only when `ESP32` or `ESP8266` is defined. Include via the aggregator
@@ -68,6 +115,26 @@
 *
 * @par Changelog
 * - 2026-05-26 Initial creation.
+* - 2026-07-16 Replaced the fixed-Packet, fixed-depth `std::array<Packet,
+*      QueueDepth>` ring (plus a separate `Packet`-sized staging accumulator)
+*      with a single `std::array<std::byte, BufferCapacity>` byte ring.
+*      `Packet` moved from a class-level parameter to a per-call one on
+*      `do_send`/`do_try_receive` (matching `channel<Impl>`'s new contract),
+*      so one instance can now carry several distinct packet types over the
+*      same connection. This requires clearing the entire ring (not just a
+*      partial tail) on disconnect, since the ring no longer has any
+*      packet-boundary information at buffer time -- see the file-level
+*      "Disconnect clears the entire ring" note.
+* - 2026-07-17 `on_data`'s overflow handling changed from "truncate the tail
+*      of the incoming delivery in place, keep the existing backlog" to
+*      "reset to a clean run at offset 0 and place this delivery there,
+*      discarding the existing backlog" -- avoids ever writing a truncated
+*      chunk straddling the ring's physical wrap boundary, and in the common
+*      case (an existing backlog plus this delivery don't fit together, but
+*      the delivery alone does) keeps the new delivery whole and untorn
+*      instead of splitting it. See the file-level "Overflow resets to a
+*      clean run at offset 0" note (renamed from "Overflow desyncs framing
+*      until reconnect").
 */
 #ifndef ECOMM_CHANNELS_ESP_ASYNC_WIFI_CHANNEL_HPP_
 #define ECOMM_CHANNELS_ESP_ASYNC_WIFI_CHANNEL_HPP_
@@ -83,6 +150,7 @@
 
 #ifndef ECOMM_NO_ESP_ASYNC_WIFI_SUPPORT
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -98,40 +166,41 @@ namespace ecomm::channels {
     *
     * @brief Non-blocking Wi-Fi channel for ESP32 / ESP8266 via AsyncTCP.
     *
-    * Wraps an `AsyncServer` and maintains a fixed-depth ring queue of complete
-    * received packets. Call `try_receive` from your main loop  --  it returns
-    * immediately whether or not a packet is waiting. Incoming bytes are
-    * accumulated in a staging buffer by the library's internal data callback and
-    * promoted to the ring queue one packet at a time.
+    * Wraps an `AsyncServer` and maintains a fixed-capacity byte ring of
+    * incoming data. Call `try_receive<Packet>()` from your main loop  --  it
+    * returns immediately whether or not a complete packet is waiting. Bytes
+    * are appended to the ring by the library's internal data callback;
+    * framing into packets happens entirely on the read side, so the same
+    * channel instance can serve several distinct `Packet` types.
     *
     * Only one active `AsyncClient` connection is managed at a time. If a second
     * client connects while one is already active, the new connection is rejected.
     *
-    * @tparam Packet     The fixed packet type this channel operates on. Must be
-    *                    trivially copyable  --  it is copied by value into the ring
-    *                    buffer and out of it.
-    * @tparam QueueDepth Number of complete packets the ring buffer can hold.
-    *                    Must be >= 2 (one slot is always kept empty to distinguish
-    *                    full from empty). A value of 2 - 4 is typical; increase only
-    *                    if your packet rate can outpace your `try_receive` call rate.
+    * @tparam BufferCapacity Size, in bytes, of the internal ring buffer. Must
+    *                        be large enough to hold at least one instance of
+    *                        every `Packet` type you intend to receive through
+    *                        this channel (`do_try_receive<Packet>` static_asserts
+    *                        `sizeof(Packet) < BufferCapacity` -- one byte is
+    *                        always kept empty to distinguish full from empty).
+    *                        Size generously relative to your packet size(s)
+    *                        and expected burst rate: see the file-level
+    *                        "Overflow resets to a clean run at offset 0" note
+    *                        for why running out of room is worse here than
+    *                        simply losing one packet.
     *
     * @warning `send` and `try_receive` must be called from the same execution
     *          context (your main loop / task). They are not safe to call
     *          concurrently with each other. The internal data callback is the only
     *          code that runs on a separate context, and it is guarded appropriately.
     */
-    template<typename Packet, std::size_t QueueDepth = 4>
+    template<std::size_t BufferCapacity>
     class esp_async_wifi_channel
-        : public channel<esp_async_wifi_channel<Packet, QueueDepth>, Packet>
+        : public channel<esp_async_wifi_channel<BufferCapacity>>
     {
-        static_assert(std::is_trivially_copyable_v<Packet>,
-            "esp_async_wifi_channel: Packet must be trivially copyable; "
-            "memcpy is used to move packets in and out of the ring buffer.");
-
-        static_assert(QueueDepth >= 2,
-            "esp_async_wifi_channel: QueueDepth must be >= 2. "
-            "One slot is always kept empty to distinguish full from empty; "
-            "a depth of 1 would make the queue permanently appear full.");
+        static_assert(BufferCapacity >= 2,
+            "esp_async_wifi_channel: BufferCapacity must be >= 2. "
+            "One byte is always kept empty to distinguish full from empty; "
+            "a capacity of 1 would make the ring permanently appear full.");
 
     public:
         /**
@@ -153,7 +222,7 @@ namespace ecomm::channels {
         explicit esp_async_wifi_channel(AsyncServer& server) noexcept;
 
     private:
-        friend class channel<esp_async_wifi_channel<Packet, QueueDepth>, Packet>;
+        friend class channel<esp_async_wifi_channel<BufferCapacity>>;
 
         /**
         * @brief Write a sealed packet to the active client.
@@ -163,32 +232,40 @@ namespace ecomm::channels {
         * caller observes this as a no-op send (same behaviour as
         * `arduino_wifi_channel` when no client is available).
         *
+        * @tparam Packet Deduced from `packet`'s type.
         * @param[in] packet Sealed packet to transmit. Written as a raw byte
         *                   block of `sizeof(Packet)` bytes.
         *
         * @note AsyncTCP buffers the write internally; bytes may not be on the
         *       wire before this call returns.
         */
+        template<typename Packet>
         void do_send(const Packet& packet) noexcept;
 
         /**
-        * @brief Pop one complete packet from the ring queue.
+        * @brief Pop one complete packet's worth of bytes from the ring.
         *
-        * Called by `channel::try_receive`. Returns `false` immediately if the
-        * queue is empty (non-blocking). If a packet is available it is copied
-        * into `out` and the tail index is advanced.
+        * Called by `channel::try_receive`. Returns `false` immediately if
+        * fewer than `sizeof(Packet)` bytes are currently buffered
+        * (non-blocking). If enough bytes are available they are copied into
+        * `out` and the ring's read position is advanced by `sizeof(Packet)`.
         *
+        * @tparam Packet Deduced from `out`'s type. `static_assert`s that
+        *                `sizeof(Packet) < BufferCapacity`.
         * @param[out] out Destination packet. Written only on `true` return.
-        * @return `true`   --  a complete packet was copied into `out`.
-        * @return `false`  --  the queue is empty; `out` is unchanged.
+        * @return `true`   --  `sizeof(Packet)` bytes were copied into `out`.
+        * @return `false`  --  fewer than `sizeof(Packet)` bytes were buffered;
+        *                      `out` is unchanged.
         *
-        * @note The `memcpy` from `_slots[_tail]` is intentionally performed
-        *       outside the critical section. `_tail` is the exclusive domain of
-        *       the main task (only `do_try_receive` advances it), and the
-        *       producer only writes to `_slots[_head]`. Since `_head != _tail`
-        *       was verified under lock before the copy, the slot at `_tail` is
-        *       guaranteed stable for the duration of the copy.
+        * @note The copy is intentionally performed outside the critical
+        *       section. The read position is the exclusive domain of the main
+        *       task (only this method advances it), and the producer
+        *       (`on_data`) only ever writes into the not-yet-exposed free
+        *       region ahead of the write position. Since enough bytes were
+        *       verified buffered under lock before the copy, the region being
+        *       read is guaranteed stable for the duration of the copy.
         */
+        template<typename Packet>
         bool do_try_receive(Packet& out) noexcept;
 
         // --- Internal callback handlers (called from TCP task / ISR) --------
@@ -207,67 +284,59 @@ namespace ecomm::channels {
         /**
         * @brief Called by AsyncTCP when bytes arrive from the active client.
         *
-        * Accumulates bytes into `_staging`. When `sizeof(Packet)` bytes have
-        * been collected the complete packet is pushed into the ring queue.
-        * Excess bytes beyond a packet boundary are carried over into the next
-        * accumulation cycle  --  this handles the case where the TCP layer
-        * delivers multiple packets in a single callback.
+        * If this delivery fits in the remaining free space, appends it to the
+        * ring, wrapping through it as needed. If it doesn't, resets the ring
+        * to a clean run starting at offset 0 and places this delivery there
+        * instead, discarding whatever was buffered and not yet read -- see
+        * the file-level "Overflow resets to a clean run at offset 0" note.
         *
         * @param[in] data  Pointer to the received byte block.
         * @param[in] len   Number of bytes in this delivery.
         *
         * @note Runs on the TCP task (ESP32) or from interrupt context (ESP8266).
-        *       Only the ring-queue head update is guarded by the critical section;
-        *       `_staging` is written exclusively from this callback.
+        *       Reads the current free space under the critical section, then
+        *       copies into either the pre-cleared free region (normal path)
+        *       or the whole ring from offset 0 (overflow path) without
+        *       holding the lock, then commits the new write position under
+        *       the lock -- symmetric with `do_try_receive`'s locking
+        *       discipline.
         */
         void on_data(const void* data, std::size_t len) noexcept;
 
         /**
         * @brief Called by AsyncTCP when the active client disconnects.
         *
-        * Clears `_client` and resets the staging buffer so the channel is
-        * ready to accept a new connection cleanly.
+        * Clears `_client` and the entire ring buffer -- see the file-level
+        * "Disconnect clears the entire ring" note for why a partial clear is
+        * not possible here.
         *
         * @param[in] client Pointer to the disconnecting client (for identification).
         */
         void on_disconnect(AsyncClient* client) noexcept;
 
-        // --- Ring queue helpers ---------------------------------------------
+        // --- Ring buffer helpers (byte-oriented) -----------------------------
 
         /**
-        * @brief Push a complete packet from `_staging` into the ring queue.
+        * @brief Number of bytes currently buffered and available to read.
         *
-        * Called from `on_data` after a full packet has been accumulated.
-        * Silently drops the packet if the queue is full (overflow policy:
-        * drop oldest-waiting, keep newest  --  matches the real-time workload
-        * where stale sensor data is worthless).
-        *
-        * @note Guarded by the critical section  --  may run on TCP task / ISR.
+        * @warning Reads `_head`/`_tail`; call only while holding `_cs`, or
+        *          treat the result as a racy snapshot for diagnostics only.
         */
-        void push_packet() noexcept;
+        [[nodiscard]] std::size_t bytes_available() const noexcept;
 
         /**
-        * @brief Return `true` if the ring queue is empty.
+        * @brief Number of bytes of free space remaining before the ring is full.
         *
-        * @note Read of `_head` from the consumer side is guarded by the
-        *       critical section on ESP32 (where it may change on another core).
+        * @warning Same locking requirement as `bytes_available`.
         */
-        [[nodiscard]] bool queue_empty() const noexcept;
-
-        /**
-        * @brief Return `true` if the ring queue is full.
-        *
-        * Full is defined as `(_head + 1) % QueueDepth == _tail`. One slot is
-        * always kept empty to distinguish full from empty without a counter.
-        */
-        [[nodiscard]] bool queue_full() const noexcept;
+        [[nodiscard]] std::size_t bytes_free() const noexcept;
 
         // --- Critical section (platform-selected at compile time) -----------
 
         /**
         * @struct critical_section
         *
-        * @brief Minimal RAII guard that serialises access to the ring-queue
+        * @brief Minimal RAII guard that serialises access to the ring buffer's
         *        head/tail indices between the TCP callback and the main loop.
         *
         * On ESP32 (dual-core) uses a `portMUX_TYPE` spinlock via
@@ -291,16 +360,14 @@ namespace ecomm::channels {
         AsyncServer&  _server;                        ///< Bound async TCP server.
         AsyncClient*  _client  = nullptr;             ///< Active connection; null when idle.
 
-        /// Fixed ring buffer of complete packets.
-        std::array<Packet, QueueDepth> _slots{};
+        /// Fixed-capacity byte ring. Valid, unread bytes occupy [_tail, _head)
+        /// (mod BufferCapacity); one byte is always kept empty to distinguish
+        /// full from empty without a separate counter.
+        std::array<std::byte, BufferCapacity> _ring{};
         std::size_t _head = 0;    ///< Next write index (producer: TCP callback).
         std::size_t _tail = 0;    ///< Next read  index (consumer: try_receive).
 
-        /// Partial-packet accumulator  --  written exclusively from the data callback.
-        std::byte   _staging[sizeof(Packet)]{};
-        std::size_t _staging_used = 0;
-
-        critical_section _cs{};   ///< Guards head/tail updates.
+        critical_section _cs{};   ///< Guards head/tail updates and their reads.
     };
 
 } // namespace ecomm::channels

@@ -2,20 +2,25 @@
 /**
 * @file arduino_wifi_channel.hpp
 *
-* @brief Typed Wi-Fi channel for packet-based messaging on Arduino platforms.
+* @brief Synchronous Wi-Fi channel for packet-based messaging on Arduino platforms.
 *
 * @ingroup ecomm_channels ecomm::channels
 *
-* Provides `arduino_wifi_channel<Packet, tag>`, a concrete `channel<>` for
-* TCP communication via Arduino's `WiFiServer`/`WiFiClient`. The channel reads
-* and writes fixed-size packets as raw binary blobs over an active TCP
-* connection. Validation and sealing are handled transparently by `channel<>`.
+* Provides `arduino_wifi_channel<tag>`, a concrete `channel<>` for TCP
+* communication via Arduino's `WiFiServer`/`WiFiClient`. The channel reads and
+* writes packets as raw binary blobs over an active TCP connection; the
+* packet type is a template parameter of `send`/`try_receive` themselves
+* (inherited from `channel<>`), not of this class, so one instance can carry
+* as many distinct packet types as the caller needs over the same connection.
+* Validation and sealing are handled transparently by `channel<>`.
 *
 * Because TCP provides delivery and integrity guarantees, the recommended
 * packet configuration for this channel uses `ChecksumPolicy = none`:
 * ```cpp
 * using wifi_packet = ecomm::protocol::packet<32, topology::network, none>;
-* arduino_wifi_channel<wifi_packet> ch{server};
+* arduino_wifi_channel<> ch{server};
+* wifi_packet p{...};
+* (void)ch.send(p);
 * ```
 *
 * Only one active `WiFiClient` is tracked at a time.
@@ -41,6 +46,11 @@
 *              `delegate_` -> `do_`.
 * - 2026-05-26 Removed ESP8266/ESP32-specific includes; now uses __has_include(<WiFi.h>)
 *              only. ESP targets should use esp_async_wifi_channel instead.
+* - 2026-07-16 Dropped the class-level `Packet` parameter -- `do_send`/
+*      `do_try_receive` are now member templates over `Packet`, matching
+*      `channel<Impl>`'s per-call packet type. This channel has no internal
+*      state sized to a packet, so nothing about it required fixing one
+*      packet type in the first place.
 */
 #ifndef ECOMM_ARDUINO_WIFI_CHANNEL_HPP_
 #define ECOMM_ARDUINO_WIFI_CHANNEL_HPP_
@@ -68,14 +78,15 @@ namespace ecomm::channels {
     *
     * Wraps a `WiFiServer` instance. On the first `do_try_receive` or `do_send`
     * call the channel accepts an incoming `WiFiClient` and reuses it for
-    * subsequent operations.
+    * subsequent operations. Exposes typed `send<Packet>`/`try_receive<Packet>`
+    * via the `channel<>` base for any `Packet` type the caller names -- this
+    * class holds no per-packet state.
     *
-    * @tparam Packet Packet type this channel operates on.
-    * @tparam tag    Compile-time tag to distinguish multiple Wi-Fi channel instances.
+    * @tparam tag Compile-time tag to distinguish multiple Wi-Fi channel instances.
     */
-    template<typename Packet, std::uint8_t tag = 0>
+    template<std::uint8_t tag = 0>
     class arduino_wifi_channel
-        : public channel<arduino_wifi_channel<Packet, tag>, Packet>
+        : public channel<arduino_wifi_channel<tag>>
     {
     public:
         /**
@@ -87,7 +98,7 @@ namespace ecomm::channels {
         explicit arduino_wifi_channel(WiFiServer& server) noexcept;
 
     private:
-        friend class channel<arduino_wifi_channel<Packet, tag>, Packet>;
+        friend class channel<arduino_wifi_channel<tag>>;
 
         /**
         * @brief Read one packet's worth of bytes from the active Wi-Fi client.
@@ -96,9 +107,11 @@ namespace ecomm::channels {
         * Returns `false` if no client is available or fewer than `sizeof(Packet)`
         * bytes have arrived.
         *
+        * @tparam Packet Deduced from `out`'s type.
         * @param[out] out Destination packet buffer.
         * @return `true` if a complete packet was read, `false` otherwise.
         */
+        template<typename Packet>
         bool do_try_receive(Packet& out) noexcept;
 
         /**
@@ -107,8 +120,10 @@ namespace ecomm::channels {
         * Accepts a new client if none is connected. Returns without writing if
         * no client is available.
         *
+        * @tparam Packet Deduced from `packet`'s type.
         * @param[in] packet Packet to transmit.
         */
+        template<typename Packet>
         void do_send(const Packet& packet) noexcept;
 
         WiFiServer& _server; ///< Server accepting incoming connections.
