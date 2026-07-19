@@ -68,6 +68,15 @@
 *
 * @par Changelog
 * - 2026-05-28 Initial creation.
+* - 2026-07-16 Updated mock_impl/shared_mock_impl/net_mock_impl's CRTP base for
+*      channel<Impl> (Packet dropped from the base's own template arguments;
+*      these mocks keep their own class-level Packet unchanged, since they are
+*      always used with one consistent packet type here). net_channel (used
+*      directly, not through reliable_channel) needed its `try_receive()`
+*      calls to become `try_receive<net_packet>()`, no longer deducible with
+*      zero arguments; reliable_channel-wrapped `ch`/`chan` calls were
+*      unaffected, since reliable_channel's own send/try_receive stayed
+*      non-templated (it fixes its own Packet per instance).
 */
 
 #include <gtest/gtest.h>
@@ -136,7 +145,7 @@ static void clock_reset() noexcept { mock_clock::_now = 0; }
 // ---------------------------------------------------------------------------
 
 template<typename Packet>
-struct mock_impl : channel<mock_impl<Packet>, Packet> {
+struct mock_impl : channel<mock_impl<Packet>> {
 
     std::deque<std::byte> rx;   ///< Bytes the channel will read next.
     std::vector<std::byte> tx;  ///< Bytes the channel has written.
@@ -252,7 +261,7 @@ struct wire_state {
 };
 
 template<typename Packet>
-struct shared_mock_impl : channel<shared_mock_impl<Packet>, Packet> {
+struct shared_mock_impl : channel<shared_mock_impl<Packet>> {
 
     explicit shared_mock_impl(wire_state* w) noexcept : _wire{w} {}
 
@@ -685,7 +694,7 @@ TEST(rc_staging, buffer_depth_2_fifo_order) {
 
 // Net mock: same wire-state pointer pattern, but typed for net_packet.
 template<typename Packet>
-struct net_mock_impl : channel<net_mock_impl<Packet>, Packet> {
+struct net_mock_impl : channel<net_mock_impl<Packet>> {
     explicit net_mock_impl(wire_state* w) noexcept : _wire{w} {}
 
     void do_send(const Packet& pkt) noexcept {
@@ -736,12 +745,12 @@ struct addr_filter : ::testing::Test {
 
 TEST_F(addr_filter, accepts_packet_addressed_to_this_board) {
     inject_net(wire, make_net(static_cast<std::uint8_t>(ECOMM_BOARD_ID)));
-    EXPECT_TRUE(ch.try_receive().has_value());
+    EXPECT_TRUE(ch.try_receive<net_packet>().has_value());
 }
 
 TEST_F(addr_filter, accepts_broadcast_packet) {
     inject_net(wire, make_net(0xFFu));
-    EXPECT_TRUE(ch.try_receive().has_value());
+    EXPECT_TRUE(ch.try_receive<net_packet>().has_value());
 }
 
 TEST_F(addr_filter, drops_packet_addressed_to_different_board) {
@@ -749,12 +758,12 @@ TEST_F(addr_filter, drops_packet_addressed_to_different_board) {
     constexpr std::uint8_t other =
         (static_cast<std::uint8_t>(ECOMM_BOARD_ID) == 2u) ? 3u : 2u;
     inject_net(wire, make_net(other));
-    EXPECT_FALSE(ch.try_receive().has_value());
+    EXPECT_FALSE(ch.try_receive<net_packet>().has_value());
 }
 
 TEST_F(addr_filter, drops_packet_with_reserved_zero_address) {
     inject_net(wire, make_net(0x00u));
-    EXPECT_FALSE(ch.try_receive().has_value());
+    EXPECT_FALSE(ch.try_receive<net_packet>().has_value());
 }
 
 TEST_F(addr_filter, rx_bytes_consumed_even_when_address_filtered) {
@@ -762,6 +771,6 @@ TEST_F(addr_filter, rx_bytes_consumed_even_when_address_filtered) {
     constexpr std::uint8_t other =
         (static_cast<std::uint8_t>(ECOMM_BOARD_ID) == 2u) ? 3u : 2u;
     inject_net(wire, make_net(other));
-    static_cast<void>(ch.try_receive());   // filtered
+    static_cast<void>(ch.try_receive<net_packet>());   // filtered
     EXPECT_EQ(wire.rx.size(), 0u);
 }

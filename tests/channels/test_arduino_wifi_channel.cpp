@@ -33,6 +33,11 @@
 *     - A packet sent through one channel and injected into a second is
 *       received correctly (payload preserved, header preserved).
 *
+*   multi-packet-type flexibility
+*     - One channel instance can send()/try_receive<>() two distinct packet
+*       types over the same underlying WiFiClient, since Packet is now a
+*       per-call template parameter rather than baked into the channel type.
+*
 * @author Mark Tikhonov <mtik.philosopher@gmail.com>
 *
 * @date 2026-05-26
@@ -45,6 +50,11 @@
 * @par Changelog
 * - 2026-05-26 Initial creation.
 * - 2026-05-27 Updated for send_result return and std::optional try_receive.
+* - 2026-07-16 Updated for channel<Impl>'s per-call Packet: `try_receive()` ->
+*      `try_receive<test_packet>()`; test_channel dropped its Packet argument
+*      (`arduino_wifi_channel<test_packet>` -> `arduino_wifi_channel<>`). Added
+*      coverage for sending/receiving two distinct packet types through one
+*      instance.
 */
 
 #include <gtest/gtest.h>
@@ -64,7 +74,11 @@ using namespace ecomm::protocol;
 using namespace ecomm::channels;
 
 using test_packet  = packet<32, topology::point_to_point, no_sequence, crc32>;
-using test_channel = arduino_wifi_channel<test_packet>;
+using test_channel = arduino_wifi_channel<>;
+
+// A second, distinct packet type -- different size and checksum -- used to
+// prove one channel instance can carry more than one Packet type.
+using other_packet = packet<16, topology::point_to_point, no_sequence, crc16>;
 
 static test_packet make_sealed(header_type type = header_type::data,
                                header_options opts = header_options::none)
@@ -141,14 +155,14 @@ TEST(arduino_wifi_channel_try_receive, returns_nullopt_when_no_client) {
     server.set_client_available(false);
     test_channel ch{server};
 
-    EXPECT_FALSE(ch.try_receive().has_value());
+    EXPECT_FALSE(ch.try_receive<test_packet>().has_value());
 }
 
 TEST(arduino_wifi_channel_try_receive, returns_nullopt_when_rx_empty) {
     WiFiServer server;
     test_channel ch{server};
 
-    EXPECT_FALSE(ch.try_receive().has_value());
+    EXPECT_FALSE(ch.try_receive<test_packet>().has_value());
 }
 
 TEST(arduino_wifi_channel_try_receive, returns_nullopt_when_partial_packet) {
@@ -158,7 +172,7 @@ TEST(arduino_wifi_channel_try_receive, returns_nullopt_when_partial_packet) {
     const test_packet pkt = make_sealed();
     server.client.inject(&pkt, sizeof(test_packet) - 1);
 
-    EXPECT_FALSE(ch.try_receive().has_value());
+    EXPECT_FALSE(ch.try_receive<test_packet>().has_value());
 }
 
 TEST(arduino_wifi_channel_try_receive, returns_engaged_optional_for_valid_packet) {
@@ -168,7 +182,7 @@ TEST(arduino_wifi_channel_try_receive, returns_engaged_optional_for_valid_packet
     const test_packet pkt = make_sealed();
     server.client.inject(&pkt, sizeof(test_packet));
 
-    EXPECT_TRUE(ch.try_receive().has_value());
+    EXPECT_TRUE(ch.try_receive<test_packet>().has_value());
 }
 
 TEST(arduino_wifi_channel_try_receive, received_packet_matches_sent) {
@@ -178,7 +192,7 @@ TEST(arduino_wifi_channel_try_receive, received_packet_matches_sent) {
     const test_packet pkt = make_sealed();
     server.client.inject(&pkt, sizeof(test_packet));
 
-    const auto result = ch.try_receive();
+    const auto result = ch.try_receive<test_packet>();
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(std::memcmp(&result.value(), &pkt, sizeof(test_packet)), 0);
 }
@@ -191,7 +205,7 @@ TEST(arduino_wifi_channel_try_receive, returns_nullopt_for_corrupt_packet) {
     pkt.payload[0] ^= std::byte{0xFF};
     server.client.inject(&pkt, sizeof(test_packet));
 
-    EXPECT_FALSE(ch.try_receive().has_value());
+    EXPECT_FALSE(ch.try_receive<test_packet>().has_value());
 }
 
 // ---------------------------------------------------------------------------
@@ -213,10 +227,49 @@ TEST(arduino_wifi_channel_round_trip, send_then_receive_preserves_packet) {
     rx_server.client.inject(tx_server.client.tx().data(),
                             tx_server.client.tx().size());
 
-    const auto result = rx_ch.try_receive();
+    const auto result = rx_ch.try_receive<test_packet>();
     ASSERT_TRUE(result.has_value());
 
     EXPECT_EQ(std::memcmp(result->payload, original.payload,
                           test_packet::payload_size), 0);
     EXPECT_EQ(result->header.type(), header_type::data);
+}
+
+// ---------------------------------------------------------------------------
+// multi-packet-type flexibility
+// ---------------------------------------------------------------------------
+
+TEST(arduino_wifi_channel_multi_packet, sends_two_distinct_packet_types) {
+    WiFiServer server;
+    test_channel ch{server};
+
+    test_packet  a{header_type::data, header_options::none};
+    other_packet b{header_type::data, header_options::none};
+
+    static_cast<void>(ch.send(a));   // Packet deduced as test_packet
+    static_cast<void>(ch.send(b));   // Packet deduced as other_packet
+
+    EXPECT_EQ(server.client.tx().size(), sizeof(test_packet) + sizeof(other_packet));
+}
+
+TEST(arduino_wifi_channel_multi_packet, receives_two_distinct_packet_types_in_order) {
+    WiFiServer server;
+    test_channel ch{server};
+
+    const test_packet a = make_sealed();
+    other_packet b{header_type::data, header_options::none};
+    for (std::size_t i = 0; i < other_packet::payload_size; ++i)
+        b.payload[i] = static_cast<std::byte>(0x11 ^ i);
+    validator<other_packet>{}.seal(b);
+
+    server.client.inject(&a, sizeof(test_packet));
+    server.client.inject(&b, sizeof(other_packet));
+
+    const auto result_a = ch.try_receive<test_packet>();
+    ASSERT_TRUE(result_a.has_value());
+    EXPECT_EQ(std::memcmp(&result_a.value(), &a, sizeof(test_packet)), 0);
+
+    const auto result_b = ch.try_receive<other_packet>();
+    ASSERT_TRUE(result_b.has_value());
+    EXPECT_EQ(std::memcmp(&result_b.value(), &b, sizeof(other_packet)), 0);
 }
