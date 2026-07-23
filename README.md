@@ -23,14 +23,14 @@ using namespace ecomm::channels;
 // A 32-byte, point-to-point packet with a 16-bit CRC.
 using my_packet = packet<32, topology::point_to_point, no_sequence, crc16>;
 
-arduino_serial_channel<my_packet> link{Serial};   // named `link`, not `channel` -- that name is
-                                                    // already ecomm::channels::channel<Impl, Packet>
+arduino_serial_channel<> link{Serial};   // named `link`, not `channel` -- that name is
+                                          // already ecomm::channels::channel<Impl>
 
 my_packet out{header_type::data, header_options::none};
 std::memcpy(out.payload, "hello", 5);
-(void)link.send(out);   // seals (computes + writes the CRC), then writes the raw bytes -- [[nodiscard]]
+(void)link.send(out);   // Packet deduced; seals (computes + writes the CRC), then writes the raw bytes
 
-if (auto in = link.try_receive()) {
+if (auto in = link.try_receive<my_packet>()) {
     // *in is a structurally valid, checksum-verified my_packet
 }
 ```
@@ -59,7 +59,7 @@ this firmware directly.
   - [The error envelope](#the-error-envelope)
   - [Configuration macros (`config.hpp`)](#configuration-macros-confighpp)
 - [The Channels Layer (`ecomm::channels`)](#the-channels-layer-ecommchannels)
-  - [`channel<Impl, Packet>` — the CRTP base](#channelimpl-packet--the-crtp-base)
+  - [`channel<Impl>` — the CRTP base](#channelimpl--the-crtp-base)
   - [`arduino_serial_channel`](#arduino_serial_channel)
   - [`arduino_wifi_channel`](#arduino_wifi_channel)
   - [`esp_async_wifi_channel`](#esp_async_wifi_channel)
@@ -69,6 +69,7 @@ this firmware directly.
   - [No dynamic allocation](#no-dynamic-allocation)
   - [Strategy via templates, not virtuals](#strategy-via-templates-not-virtuals)
 - [The `hub` module](#the-hub-module)
+- [The `router` module](#the-router-module)
 - [The Python Client](#the-python-client)
 - [Examples](#examples)
 - [Edge Cases & Behavior](#edge-cases--behavior)
@@ -101,12 +102,13 @@ this firmware directly.
   protocol, checked byte-for-byte against this library's compiled output — not merely a
   compatible reimplementation.
 
-Two library namespaces:
+Three library namespaces:
 
 | Namespace | Contents |
 |---|---|
 | `ecomm::protocol` | The wire format: `packet_header`, `packet`, checksum policies and `compute<>`, `validator<Packet>`, the error envelope, and the plain enums (`header_type`, `header_options`, `topology`). |
-| `ecomm::channels` | The transports: `channel<Impl, Packet>` (CRTP base), `arduino_serial_channel`, `arduino_wifi_channel`, `esp_async_wifi_channel`, `reliable_channel`, and `send_result`. |
+| `ecomm::channels` | The transports: `channel<Impl>` (CRTP base), `arduino_serial_channel`, `arduino_wifi_channel`, `esp_async_wifi_channel`, `reliable_channel`, `send_result`, and `role` (a channel's participation in a `hub`). |
+| `ecomm::fabric` | `hub<Channels...>` (explicit, caller-known-`Packet` send/receive) and `router` (heterogeneous, handler-driven dispatch). |
 
 `ecomm::protocol::details` and `ecomm::channels`' private members are implementation detail — not
 part of the public API, and not stable across versions.
@@ -173,8 +175,8 @@ using namespace ecomm::channels;
 // with a 16-bit CRC. Both peers must instantiate this exact same alias.
 using my_packet = packet<32, topology::network, no_sequence, crc16>;
 
-arduino_serial_channel<my_packet> link{Serial};   // named `link`, not `channel` -- that name is
-                                                    // already ecomm::channels::channel<Impl, Packet>
+arduino_serial_channel<> link{Serial};   // named `link`, not `channel` -- that name is
+                                          // already ecomm::channels::channel<Impl>
 
 void setup() {
     Serial.begin(115200);
@@ -184,9 +186,9 @@ void loop() {
     my_packet out{header_type::data, header_options::none};
     out.header.receiver_id = 2;
     std::memcpy(out.payload, "ping", 4);
-    (void)link.send(out);   // seals (computes + writes the CRC) then writes the raw bytes -- [[nodiscard]]
+    (void)link.send(out);   // Packet deduced; seals (computes + writes the CRC) then writes the raw bytes
 
-    if (auto in = link.try_receive()) {
+    if (auto in = link.try_receive<my_packet>()) {
         // *in passed validator<my_packet>::is_valid and is addressed to this board
         Serial.print("from board ");
         Serial.println(in->header.sender_id);
@@ -344,8 +346,8 @@ A stateless policy struct with two operations, specialized on whether `ChecksumP
 - **`is_valid(packet)`** — zero a local copy's `fcs`, recompute, compare against the received value.
   Always `true` when `ChecksumPolicy == none`. Never mutates the caller's packet.
 
-`channel<Impl, Packet>` calls both automatically — `seal` inside `send()`, `is_valid` inside
-`try_receive()` — so application code never calls `validator` directly in the common case.
+`channel<Impl>` calls both automatically — `seal` inside `send<Packet>()`, `is_valid` inside
+`try_receive<Packet>()` — so application code never calls `validator` directly in the common case.
 
 ### The error envelope
 
@@ -406,22 +408,30 @@ violated:
 
 ## The Channels Layer (`ecomm::channels`)
 
-### `channel<Impl, Packet>` — the CRTP base
+### `channel<Impl>` — the CRTP base
 
-A self-contained, typed, two-way endpoint bound to one `packet<>` configuration end-to-end. `Impl`
-supplies the hardware-specific byte transport by implementing two methods:
+A self-contained, two-way endpoint. `Packet` is a template parameter of `send`/`try_receive`
+themselves, not of the channel — one instance can carry as many distinct packet types as the caller
+needs, each validated and sealed independently per call. `Impl` supplies the hardware-specific byte
+transport by implementing two methods, for every `Packet` it wishes to support:
 
 - `void do_send(const Packet&) noexcept` — write raw bytes to the physical medium.
 - `bool do_try_receive(Packet&) noexcept` — read raw bytes into the supplied packet; return `true`
   if a complete packet was read.
 
+`Impl` may provide these as ordinary methods fixed to one `Packet` (if it has a genuine per-packet
+constraint — see `esp_async_wifi_channel` below), or as member templates over `Packet` for full
+flexibility (`arduino_serial_channel`, `arduino_wifi_channel` — pure byte passthrough, no per-packet
+state). `channel<Impl>` doesn't care which; ordinary overload resolution decides per call, and fails
+to compile with a plain "no matching function" if `Impl` doesn't support the requested `Packet`.
+
 `channel` composes `validator<Packet>` around those primitives:
 
 ```
 user code
-    |  send(Packet&) / try_receive()
+    |  send<Packet>(Packet&) / try_receive<Packet>()
     v
-channel<Impl, Packet>          <- validates, seals; never allocates
+channel<Impl>                  <- validates, seals; never allocates
     |  do_send / do_try_receive
     v
 Impl (e.g. arduino_serial_channel)   <- raw bytes to/from hardware
@@ -431,8 +441,8 @@ hardware
 
 | Member | Returns | Behavior |
 |---|---|---|
-| `send(Packet&)` | `send_result` | Seals the packet, then `do_send`s it. Always `send_result::ok` — the unreliable channel makes no delivery guarantee; `ok` means the bytes were handed to the transport, not that they arrived. |
-| `try_receive()` | `std::optional<Packet>` | `do_try_receive`s; returns the packet only if it passes `validator::is_valid` and, for `network`-topology packets, its `receiver_id` is `ECOMM_BOARD_ID` or `0xFF` (broadcast). Disengaged otherwise — nothing available, corrupt, or misaddressed are indistinguishable at this layer. |
+| `send<Packet>(Packet&)` | `send_result` | `Packet` deduced from the argument — no explicit template argument needed. Seals the packet, then `do_send`s it. Always `send_result::ok` — the unreliable channel makes no delivery guarantee; `ok` means the bytes were handed to the transport, not that they arrived. |
+| `try_receive<Packet>()` | `std::optional<Packet>` | `Packet` must be named explicitly — there's no argument to deduce a return type from, a hard C++ rule. `do_try_receive`s; returns the packet only if it passes `validator::is_valid` and, for `network`-topology packets, its `receiver_id` is `ECOMM_BOARD_ID` or `0xFF` (broadcast). Disengaged otherwise — nothing available, corrupt, or misaddressed are indistinguishable at this layer. |
 
 CRTP (rather than virtual dispatch) is deliberate here: it avoids the vtable and indirect-call cost
 on a microcontroller, at the price of the transport type being fixed at compile time — an
@@ -441,26 +451,32 @@ acceptable trade on an embedded target where the transport genuinely doesn't cha
 ### `arduino_serial_channel`
 
 ```cpp
-arduino_serial_channel<Packet, tag = 0> link{Serial};   // any HardwareSerial instance
+arduino_serial_channel<tag = 0> link{Serial};   // any HardwareSerial instance
+small_packet p{...};
+(void)link.send(p);                             // Packet deduced
+auto in = link.try_receive<big_packet>();        // a different packet type, same instance
 ```
 
 Wraps `HardwareSerial`. Reads/writes packets as raw binary blobs — no framing, no sync bytes, just
-`sizeof(Packet)` bytes back to back. `do_try_receive` returns `false` immediately if fewer than
-`sizeof(Packet)` bytes are available (checked via `Serial.available()`); never blocks. The `tag`
-parameter distinguishes multiple instances bound to different ports (`Serial`, `Serial1`, ...); two
-instances sharing a tag and a port is undefined behavior. Only compiled when `ARDUINO` is defined.
+`sizeof(Packet)` bytes back to back. `do_try_receive<Packet>` returns `false` immediately if fewer
+than `sizeof(Packet)` bytes are available (checked via `Serial.available()`); never blocks. Holds no
+per-packet state, so one instance can freely mix packet types call to call. The `tag` parameter
+distinguishes multiple instances bound to different ports (`Serial`, `Serial1`, ...); two instances
+sharing a tag and a port is undefined behavior. Only compiled when `ARDUINO` is defined.
 
 ### `arduino_wifi_channel`
 
 ```cpp
 WiFiServer server{80};
-arduino_wifi_channel<Packet, tag = 0> link{server};
+arduino_wifi_channel<tag = 0> link{server};
 ```
 
 Wraps a synchronous `WiFiServer`/`WiFiClient` pair: the *firmware* is the TCP server, so a PC/Pi
 client connects to it. Only compiled when `<WiFi.h>` is available. On the first `try_receive`/`send`
 the channel accepts an incoming client and reuses it; only one active client is tracked at a time.
-Recommended with `ChecksumPolicy = none`, since TCP already guarantees delivery and integrity.
+Recommended with `ChecksumPolicy = none`, since TCP already guarantees delivery and integrity. Like
+`arduino_serial_channel`, it holds no per-packet state, so one instance can carry several packet
+types over the same connection.
 
 **On ESP32/ESP8266, prefer `esp_async_wifi_channel` instead** — the synchronous `WiFiServer` API
 blocks the main loop waiting for clients and bytes, which `esp_async_wifi_channel` avoids entirely.
@@ -469,30 +485,57 @@ blocks the main loop waiting for clients and bytes, which `esp_async_wifi_channe
 
 ```cpp
 AsyncServer server{80};
-esp_async_wifi_channel<Packet, QueueDepth = 4> link{server};
+esp_async_wifi_channel<BufferCapacity> link{server};   // BufferCapacity in bytes
 // ... later:
 server.begin();
 ```
 
 A non-blocking channel built on AsyncTCP (ESP32) / ESPAsyncTCP (ESP8266). AsyncTCP drives the TCP
 stack from a background FreeRTOS task (ESP32) or from interrupt context (ESP8266) and fires data
-callbacks as bytes arrive; the channel accumulates them into a staging buffer and promotes complete
-packets into a fixed-depth ring queue, keeping the main loop always responsive:
+callbacks as bytes arrive; the channel appends them into a fixed-capacity **byte** ring, keeping the
+main loop always responsive. Unlike the synchronous channels above, this one genuinely cannot be
+made packet-agnostic in the callback itself — but it doesn't need to be: the ring holds raw bytes,
+not typed packets, so framing happens entirely on the read side, exactly like every other channel:
 
 ```
-[TCP task / ISR]  onData callback -> accumulate into _staging -> on complete packet: push into _queue
-[main loop]       try_receive(out) -> pop from _queue -> validate via channel<> base
+[TCP task / ISR]  onData callback -> append raw bytes into the byte ring (guarded)
+[main loop]       try_receive<Packet>(out) -> if >= sizeof(Packet) bytes buffered, pop that many
 ```
+
+This means one `esp_async_wifi_channel` instance can still carry several packet types — the fixed
+part is `BufferCapacity` (a byte count), not a packet type. Size it to comfortably hold at least one
+instance of every packet type you intend to receive (`try_receive<Packet>` `static_assert`s
+`sizeof(Packet) < BufferCapacity`).
+
+Two consequences of buffering undifferentiated bytes instead of typed packets, both driven by the
+same cause — the ring has no packet-boundary information at buffer time:
+
+- **Overflow resets to a clean run at offset 0.** A delivery that doesn't fit in the remaining free
+  space can't be resolved packet-aligned (there's no way to know where the next packet boundary
+  falls), so rather than truncating it in place wherever the ring's write position currently sits —
+  which could itself straddle the ring's physical wraparound point — the whole ring is reset and the
+  overflowing delivery is placed fresh at offset 0, discarding whatever was buffered and not yet
+  read. In the common case (an existing backlog plus this delivery don't fit together, but the
+  delivery alone does) the new delivery survives whole and untorn; only a single delivery larger than
+  the entire ring gets truncated (its first `BufferCapacity - 1` bytes are kept). Reads after an
+  overflow can still be misaligned if the *discarded* backlog didn't end on a packet boundary — size
+  `BufferCapacity` generously relative to your packet size(s) and burst rate to make overflow itself
+  vanishingly unlikely.
+- **Disconnect clears the entire ring**, not just a trailing partial packet — with no
+  packet-boundary information, there's no way to tell a complete-but-unread packet apart from a
+  partial one, so the only way to guarantee two connections' bytes never blend into one corrupted
+  phantom packet is to discard everything at the connection boundary.
 
 This is the **only** component in ecomm that requires synchronization — the need is
 platform-imposed, not a general design choice. A minimal critical-section guard (`portMUX_TYPE`
-spinlock on ESP32, `noInterrupts()`/`interrupts()` on single-core ESP8266) protects only the
-ring-queue head/tail update; the staging buffer is touched exclusively from the callback and needs
-no lock. `send`/`try_receive` must be called from the same execution context and are not safe to
-call concurrently with each other. Only one active `AsyncClient` connection is managed at a time; a
-second connection attempt while one is active is rejected. `QueueDepth` must be `>= 2` (one slot is
-always kept empty to distinguish full from empty); overflow policy is drop-newest (the incoming
-packet is dropped, not the oldest queued one).
+spinlock on ESP32, `noInterrupts()`/`interrupts()` on single-core ESP8266) protects only the ring's
+head/tail index updates and the size check that precedes each copy; the copies themselves happen
+outside the lock (the producer only ever writes into the not-yet-exposed free region, the consumer
+only ever reads the already-committed region — the two never actually need the lock held
+simultaneously). `send`/`try_receive` must be called from the same execution context and are not
+safe to call concurrently with each other. Only one active `AsyncClient` connection is managed at a
+time; a second connection attempt while one is active is rejected. `BufferCapacity` must be `>= 2`
+(one byte is always kept empty to distinguish full from empty).
 
 ### `reliable_channel` — acknowledgement and retry
 
@@ -500,8 +543,16 @@ packet is dropped, not the oldest queued one).
 reliable_channel<Impl, Packet, ClockPolicy, MaxRetries = 3, BufferDepth = 1> link{/* Impl args */};
 ```
 
-Wraps any `channel<Impl, Packet>`-compatible `Impl` and adds stop-and-wait reliability. Requires
+Wraps an `Impl` (itself a `channel<Impl>`) and adds stop-and-wait reliability. Requires
 `Packet::header_t::has_seq_num` (i.e. `SequencePolicy == sequenced`), enforced by a `static_assert`.
+
+**Unlike `channel<Impl>`, `reliable_channel` fixes its own `Packet` per instance** — its ack/retry
+sequence counters and inbound staging ring are per-instance state describing one ongoing packet
+stream, not a fact about `Impl`, so they can't be multiplexed across packet types the way a stateless
+`channel<Impl>` call can. Use one `reliable_channel` per packet type; since it owns its `Impl` by
+value (constructed from whatever arguments you pass to `reliable_channel`'s own constructor), a
+stateless `Impl` like `arduino_serial_channel<>` can back several `reliable_channel`s pointed at the
+same physical port, one per packet type.
 
 **`send` is a blocking call** — it busy-polls the underlying channel for an acknowledgement,
 retransmitting up to `MaxRetries` times. Worst case, the caller's thread (or Arduino loop) is
@@ -546,7 +597,7 @@ ecomm never throws C++ exceptions, anywhere, ever. Errors are handled at the ear
 ### No dynamic allocation
 
 No `new`, `malloc`, `std::vector`, or `std::string` inside anything under `ecomm/protocol/`,
-`ecomm/channels/`, or `ecomm/hub/`. Every buffer is a `std::byte[N]` member or `std::array<std::byte,
+`ecomm/channels/`, or `ecomm/fabric/`. Every buffer is a `std::byte[N]` member or `std::array<std::byte,
 N>`, sized by a `std::size_t` template parameter the compiler knows at every call site. The only
 sanctioned exceptions: allocations inside vendor SDK calls (ESP-IDF, Arduino core) that can't be
 avoided, and — when heap ownership is genuinely unavoidable in library code — a
@@ -557,44 +608,51 @@ avoided, and — when heap ownership is genuinely unavoidable in library code �
 Behavior varies at compile time (policy template parameters, tag types, `if constexpr`), not at
 runtime via inheritance — `validator<packet<..., none>>` vs. `validator<packet<..., crc16>>` is the
 canonical example: two entirely different code paths selected by the compiler, with no runtime
-branch anywhere. `channel<Impl, Packet>`'s CRTP base follows the same principle for the transport
-layer.
+branch anywhere. `channel<Impl>`'s CRTP base follows the same principle for the transport layer.
 
 ---
 
 ## The `hub` module
 
-`ecomm::hub<Channels...>` (`ecomm/hub/hub.hpp`) combines several channels behind one
-`send()`/`try_receive()` surface — a USB hub for communication links: plug in a UART leaf link and a
-Wi-Fi link, then send/receive without caring which one a packet went out or came in on. Any mix of
-`channel<Impl, Packet>` and `reliable_channel<Impl, Packet, ...>` instances is accepted — and,
-unlike a single `channel<>`, the channels in one hub need not share a `Packet` type. A coordinator's
-tight link to its own hardware and its looser uplink to the outside world routinely want different
-packet sizes; `hub` accepts both at once.
+`ecomm::hub<Channels...>` (`ecomm/fabric/hub.hpp`) combines several channels behind one
+`send<Packet>()`/`try_receive<Packet>()` surface, addressed with an explicit, caller-known `Packet`
+type per call — a USB hub for communication links: plug in a UART leaf link and a Wi-Fi link, then
+send/receive without caring which one a packet went out or came in on. Any mix of `channel<Impl>`-derived
+types and `reliable_channel<Impl, Packet, ...>` instances is accepted.
+
+`hub` is for when *you* know the packet type. When you don't — polling for whatever arrives and
+routing it to the right handler — see [the `router` module](#the-router-module) below instead;
+that's a different responsibility, with its own type. Nothing stops using both over the same channels
+(they're held by reference). The names mirror real networking hardware: a hub repeats to every port
+with no awareness of content, a router makes a forwarding decision based on what arrived — exactly
+the difference between these two types.
+
+**Routing is capability-based, not identity-based.** Since `channel<Impl>` moved `Packet` to a
+per-call template parameter, most channels have no single fixed packet type to compare against —
+`arduino_serial_channel<>` and `arduino_wifi_channel<>` accept any packet type per call, and
+`esp_async_wifi_channel<BufferCapacity>` accepts any packet type that fits its byte ring.
+`reliable_channel` is the one exception, staying fixed to one `Packet` (see its own docs for why).
+`hub` reflects this: instead of asking "what is this channel's packet type," it asks "can this
+channel handle *this* `Packet`, right now" — checked structurally, not via a `packet_t` alias. The
+practical effect: `send<Packet>()` reaches *every* active sender that can handle `Packet`, which for
+a hub of only flexible channels usually means all of them at once.
 
 ```cpp
-arduino_serial_channel<small_packet> serial_link{Serial};   // e.g. the robot's own actuators
-arduino_wifi_channel<big_packet>     wifi_link{server};     // e.g. the outside world
+arduino_serial_channel<> serial_link{Serial};   // e.g. the robot's own actuators
+arduino_wifi_channel<>   wifi_link{server};     // e.g. the outside world
 
 hub h{serial_link, wifi_link};   // CTAD deduces Channels... from the arguments
 
-(void)h.send(out);                            // Packet deduced from out's type
+(void)h.send(out);                            // Packet deduced; reaches BOTH -- both are flexible
 if (auto in = h.try_receive<small_packet>()) { /* first small_packet found */ }
-if (auto in = h.try_receive_any()) {          // don't know which type is arriving? poll everything
-    std::visit(etools::meta::overload{
-        [](small_packet&) { /* ... */ },
-        [](big_packet&)   { /* ... */ },
-    }, *in);
-}
+
+h.set_role<decltype(wifi_link)>(role::receiver);   // no longer a sender
+(void)h.send(out);                                  // now serial_link only, until re-enabled
 ```
 
-`send()` deduces `Packet` from its argument like any function template, so it reads exactly like the
-homogeneous case even though it only reaches the subset of channels whose `packet_t` matches.
-`try_receive<Packet>()` cannot deduce `Packet` — there's no argument to deduce a return type from,
-a hard rule of C++ template argument deduction — so it must be named explicitly. `try_receive_any()`
-is the way to poll without knowing the type in advance: it returns `std::optional<any_packet_t>`,
-where `any_packet_t` is a `std::variant` over the *distinct* packet types in the hub, consumable with
-`std::visit` and `etools::meta::overload` (the classic "overloaded lambda set" idiom) shown above.
+`send()` deduces `Packet` from its argument like any function template. `try_receive<Packet>()`
+cannot deduce `Packet` — there's no argument to deduce a return type from, a hard rule of C++
+template argument deduction — so it must be named explicitly.
 
 **Ownership: hub does not own its channels.** It stores references to channels the caller already
 constructed and keeps alive elsewhere (typically as `static`/file-scope objects, exactly like every
@@ -604,28 +662,111 @@ channel into itself after construction would leave AsyncTCP holding a dangling p
 storage makes that bug structurally impossible — a channel is never relocated.
 
 **Two `static_assert`s fire at `hub<...>`'s own instantiation point**, not deep inside some call
-site, if misused: every channel must be "channel-like" for its own `packet_t` (expose `using
-packet_t = SomePacket;` and the same `send`/`try_receive` signatures `channel<>` and
-`reliable_channel<>` both have — checked structurally, not via `is_base_of`, since `reliable_channel`
-isn't derived from `channel<>`), and every channel type in the pack must be pairwise distinct (use
-each channel's `tag` parameter to disambiguate two instances of the same transport). A third check is
+site, if misused: every channel must be recognizable as *some* kind of channel — either it derives
+from `channel<Channel>` (the flexible, per-call-`Packet` shape), or it exposes `using packet_t =
+SomePacket;` with matching non-template `send`/`try_receive` (the fixed shape, e.g.
+`reliable_channel`) — and every channel type in the pack must be pairwise distinct (use each
+channel's `tag` parameter to disambiguate two instances of the same transport). A third check is
 per-call: `send<Packet>`/`try_receive<Packet>` each `static_assert` that at least one channel in the
-hub actually operates on the requested `Packet` — naming a type no channel supports is a compile
+hub can currently handle the requested `Packet` — naming a type no channel supports is a compile
 error, not a silent no-op.
 
-**`send<Packet>()` returns one `std::optional<send_result>` per `Packet`-matching channel**, in
-declaration order among that subset, disengaged for a channel that wasn't an active sender — so a
+**`send<Packet>()` returns one `std::optional<send_result>` per matching channel**, in declaration
+order among that subset, disengaged for a channel that wasn't an active sender — so a
 `reliable_channel` timing out inside a hub is visible to the caller, not silently swallowed. Note
-that mixing a blocking `reliable_channel` and a non-blocking channel operating on the same packet
-type means `send()`'s worst-case latency for that call is the sum of its matching members': hub
-calls every active, matching sender in sequence and cannot parallelize a blocking one away.
+that mixing a blocking `reliable_channel` and a non-blocking channel that both handle the same packet
+type means `send()`'s worst-case latency for that call is the sum of its matching members': hub calls
+every active, matching sender in sequence and cannot parallelize a blocking one away.
 
-`use_sender<Channel>()` / `remove_sender<Channel>()` and `use_receiver<Channel>()` /
-`remove_receiver<Channel>()` toggle a channel's participation at runtime (every channel starts
-enabled for both). `try_receive<Packet>()` polls active, `Packet`-matching receivers in declaration
-order and returns the first packet found — a channel that always has data can starve later channels
-in the pack within a single call; call again to keep draining. `try_receive_any()` follows the same
-declaration-order-wins rule across *all* active receivers regardless of packet type.
+**`set_role<Channel>(role)`** (`ecomm::channels::role`, `channels/role.hpp`) sets a channel's
+participation to exactly one of four states — `role::sender`, `role::receiver`, `role::transceiver`
+(both; every channel's starting state), or `role::none` (neither) — in a single call, rather than
+toggling two independent flags with separate methods. This is the way to keep a technically-capable
+channel out of calls for a packet type you don't want it to see. `try_receive<Packet>()` polls active,
+matching receivers in declaration order and returns the first packet found — a channel that always
+has data can starve later channels in the pack within a single call; call again to keep draining.
+
+---
+
+## The `router` module
+
+`ecomm::router` (`ecomm/fabric/router.hpp`) polls a set of channels for whichever packet type
+arrives first and routes it to the handler for that type — for when you *don't* know the packet type
+in advance, the complement to `hub`'s explicit `send<Packet>`/`try_receive<Packet>`.
+
+**Construct it once from its `on_channel(...)` groups, then poll it.** `router` owns a small
+per-channel reassembly buffer (see below), so it must persist across polls — it is not a throwaway
+temporary. Class template arguments are deduced from the groups (a deduction guide is provided), so
+no explicit template arguments are needed:
+
+```cpp
+ecomm::router r{
+    on_channel(serial_link,
+        [](small_packet& in) { /* ... */ },
+        [](big_packet& in)   { /* ... */ }
+    )
+};
+while (r.try_receive_any()) { }   // returns bool -- drains until nothing is left
+```
+
+**Candidate types come from the handlers**, not from a template argument: each handler is a callable
+taking one `Packet&`, and the packet types a group's handlers declare *are* the types polled for on
+that group's channel. No packet type is ever named twice. Handlers must declare a concrete parameter
+type; a generic `[](auto& p)` carries no type to poll for and is rejected with a `static_assert`.
+
+**Why it reassembles instead of doing a plain typed read.** Streaming channels (everything derived
+from `channel<Impl>` — serial, both Wi-Fi channels) deliver raw bytes with no framing, and a typed
+`try_receive<Packet>()` *consumes* `sizeof(Packet)` bytes the moment that many are buffered, **before**
+it can check validity. With two candidate sizes on one channel that is destructive: a 48-byte packet
+that has only partially arrived (say 26 of 48 bytes) fails the 48-byte probe harmlessly, but then
+satisfies a 16-byte probe on byte count alone — consuming 16 bytes of the still-arriving larger
+packet, failing validation, and destroying it, with no way to recover since the transport has no
+peek. No backlog is required; it happens on the very first poll of a mid-arrival packet, and draining
+*more* often makes it *more* likely.
+
+`router` avoids this entirely: for each streaming channel it pulls raw bytes (`channel::receive_raw`)
+into a per-channel buffer sized to that group's largest candidate, and frames them itself —
+validating a candidate *before* consuming it, and keeping anything that doesn't yet form a complete,
+valid packet for the next poll. A partially-arrived packet simply waits in the buffer until the rest
+arrives. `reliable_channel` is exempt: it is message-atomic (it delivers whole, already-framed
+packets and carries a single packet type), so `router` polls it directly with no buffering.
+
+**Candidates are framed largest-first, automatically**, decided at compile time (`etools::meta::sort_t`
+with `etools::meta::size_greater`). A smaller candidate can validate against the leading bytes of a
+larger queued packet only by an FCS collision (astronomically unlikely), so testing large-to-small
+frames each packet correctly — **handler declaration order never affects behavior.** Concretely,
+three whole 16-byte packets buffered ahead of a 48-byte candidate now drain as three 16-byte packets
+(each 16-byte prefix passes its crc16 while the 48-byte crc32 interpretation fails), rather than being
+mistaken for one 48-byte packet and destroyed — the destructive-read bug this design fixes.
+
+**Two guardrails are enforced at compile time** for a streaming channel carrying more than one
+candidate type: candidate sizes must be **pairwise distinct** (two equally-sized types can't be told
+apart by prefix framing), and **every candidate must carry a checksum** (`ChecksumPolicy != none`) —
+a checksum-less packet's `is_valid` is unconditionally `true`, so a torn read would dispatch as
+genuine. A channel carrying a single packet type has neither hazard and may still use `none`.
+
+When different channels carry different packet types, one `on_channel(...)` group per channel keeps
+each framed only for the types it actually carries:
+
+```cpp
+ecomm::router r{
+    on_channel(wifi_link,
+        [](telemetry_packet& in) { /* ... */ },
+        [](command_packet& in)   { /* ... */ }
+    ),
+    on_channel(serial_link,
+        [](command_packet& in)   { /* ... */ }
+    )
+};
+while (r.try_receive_any()) { }
+```
+
+`Channel` is deduced from the argument to `on_channel` — no explicit template argument needed. The
+channels are referenced, not owned, and must outlive the router. Channels are polled in the order
+their groups are written; the first that yields a packet dispatches it and the call returns. **A
+channel not named in a router is never polled by it** — `router` has no persistent enable/disable
+state the way `hub::set_role` does; which channels participate is fixed by the groups it was built
+from.
 
 ---
 
@@ -664,7 +805,8 @@ table required to keep two independently-written peers wire-compatible.
 | A structurally malformed error envelope (declared length overruns the payload) | `as_error`/`as_error_unchecked` return `std::nullopt` — a wire condition, not an assertion failure. |
 | `reliable_channel::send` never receives an ack | Blocks for up to `MaxRetries * ClockPolicy::timeout_ticks()`, then returns `send_result::timeout`. |
 | A duplicate (stale `seq_num`) packet arrives at `reliable_channel::try_receive` | Re-acked, discarded, not surfaced to the caller. |
-| `esp_async_wifi_channel`'s ring queue is full when a new packet completes | The new packet is dropped (drop-newest, not drop-oldest) — matches the real-time workload where stale sensor data is worthless. |
+| `esp_async_wifi_channel`'s byte ring doesn't have room for an entire incoming delivery | The ring is reset and the delivery is placed fresh at offset 0, discarding the prior backlog. The delivery survives whole unless it alone exceeds `BufferCapacity`, in which case only its first `BufferCapacity - 1` bytes are kept. |
+| `esp_async_wifi_channel`'s client disconnects with unread data still buffered | The entire ring is cleared, including any complete-but-unread packets — not just a trailing partial one (the ring has no packet-boundary information at buffer time to tell the two apart). |
 | A second client connects to `esp_async_wifi_channel` while one is already active | Rejected; only one active `AsyncClient` at a time. |
 | `PacketSize` not word-aligned, or too small for the header | Compile error (`static_assert`), not a runtime failure. |
 | Building on a big-endian host | Compile error (`static_assert` in `error.hpp`) rather than silently wrong wire bytes. |
@@ -692,10 +834,11 @@ table required to keep two independently-written peers wire-compatible.
    the one built-in example of imposing a sub-structure on it, and
    [`ecomm-python`'s README](ecomm-python/README.md#serialization-is-your-responsibility) for the
    general principle stated explicitly.
-6. **`hub` composes channels; it holds no packet-type-to-handler dispatch table.** It fans a packet
-   out to every active sender and returns the first packet any active receiver has — deciding what
-   to *do* with a received packet (route it to a handler, an application task, ...) is out of scope
-   for `hub`, same as it is for a single `channel<>`.
+6. **`hub` composes channels with an explicit, caller-known `Packet` per call; it holds no
+   packet-type-to-handler dispatch table.** It fans a packet out to every active sender and returns
+   the first packet any active matching receiver has for the `Packet` *you* named — deciding what to
+   *do* with a received packet, or routing whichever of several possibly-unknown types shows up, is
+   `ecomm::router`'s job (see [The `router` module](#the-router-module)), not `hub`'s.
 7. **Scoped to a small, fixed-size-packet, single-owner protocol.** Many conventions from general
    wire-protocol design — variable-length messages, streaming validation, heterogeneous-MTU links,
    multi-tenant routing — solve problems this protocol doesn't have. Don't assume they apply here
@@ -722,8 +865,10 @@ table required to keep two independently-written peers wire-compatible.
   Protocol Buffers, FlatBuffers, CBOR, etc.
 - Variable-length messages, streaming/partial validation, or heterogeneous-MTU links — ecomm's fixed
   packet size and flat wire format don't fit that shape.
-- Packet-type-to-handler dispatch — `hub` composes channels, not handlers; see
-  [above](#the-hub-module).
+- Packet-type-to-handler dispatch across independently-deployed peers with unstable message shapes —
+  `ecomm::router` handles the "which handler for this packet" routing, but only within this
+  library's fixed-size, compile-time-typed packet model (see
+  [The `router` module](#the-router-module)); it is not a general message bus.
 
 ---
 
@@ -740,11 +885,11 @@ cd build && ctest --output-on-failure
 tools/run_tests.sh
 ```
 
-249 tests across nine binaries: `test_packet_header`, `test_packet`, `test_validator`, `test_error`
+277 tests across ten binaries: `test_packet_header`, `test_packet`, `test_validator`, `test_error`
 (protocol layer); `test_arduino_serial_channel`, `test_arduino_wifi_channel`,
 `test_esp_async_wifi_channel`, `test_reliable_channel` (channel layer, against drop-in mock Arduino/
 AsyncTCP headers so the test suite runs on a plain host with no hardware or Arduino toolchain);
-`test_hub` (a pure-software mock transport, no hardware headers needed).
+`test_hub`, `test_router` (pure-software mock transports, no hardware headers needed).
 
 ---
 
@@ -772,17 +917,20 @@ ecomm/
     channels/
       channels.hpp                # aggregator (platform-conditional includes)
       send_result.hpp              # send_result enum
-      channel.hpp/.tpp              # channel<Impl, Packet> CRTP base
+      role.hpp                      # channels::role enum -- a channel's participation in a hub
+      channel.hpp/.tpp              # channel<Impl> CRTP base
+      channel_traits.hpp            # shared capability-checking traits (used by hub and router)
       arduino_serial_channel.hpp/.tpp
       arduino_wifi_channel.hpp/.tpp
       esp_async_wifi_channel.hpp/.tpp
       reliable_channel.hpp/.tpp     # ack/retry wrapper around any channel<>
-    hub/
-      hub.hpp/.tpp                # hub<Channels...>: combines several channels, possibly different Packet types
+    fabric/
+      hub.hpp/.tpp                # hub<Channels...>: explicit, caller-known-Packet send/try_receive
+      router.hpp/.tpp              # router: heterogeneous, handler-driven try_receive_any
   ecomm-python/                 # the Python client (see its own README)
   examples/
     async_tcp/                    # Raspberry Pi <-> ESP32 worked example (spans both languages)
-  tests/                         # GoogleTest suite, mirrors ecomm/ (protocol/, channels/, hub/)
+  tests/                         # GoogleTest suite, mirrors ecomm/ (protocol/, channels/, fabric/)
   tools/
     run_tests.sh                 # build + run with an aggregated pass/fail summary
   project/
