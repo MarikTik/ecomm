@@ -159,6 +159,27 @@ namespace ecomm::channels {
         */
         template<typename Packet>
         [[nodiscard]] std::optional<Packet> try_receive() noexcept;
+
+        /**
+        * @brief Consume up to `max` currently-buffered bytes, unframed.
+        *
+        * Copies as many bytes as are immediately available (never more than
+        * `max`) into `dst`, advancing the transport's read position by exactly
+        * that many, and returns the count. Performs **no** framing, validation,
+        * or packet-boundary reasoning -- it is the raw byte transport `Impl`
+        * already implements, surfaced for callers that do their own framing
+        * (see `ecomm::router`, which reassembles partially-arrived packets this
+        * way to avoid misframing them). Non-blocking: returns `0` when nothing
+        * is buffered.
+        *
+        * Delegates to `Impl::do_receive_raw(std::byte*, std::size_t)`, which a
+        * streaming `Impl` supplies alongside `do_send`/`do_try_receive`.
+        *
+        * @param[out] dst Destination buffer; must hold at least `max` bytes.
+        * @param[in]  max Maximum number of bytes to consume.
+        * @return The number of bytes actually copied into `dst` (`0..max`).
+        */
+        [[nodiscard]] std::size_t receive_raw(std::byte* dst, std::size_t max) noexcept;
     };
 
 } // namespace ecomm::channels

@@ -18,6 +18,8 @@
 *              fixed missing local variable in do_try_receive.
 * - 2026-07-16 do_send/do_try_receive became member templates over Packet,
 *      matching the class-level Packet parameter's removal.
+* - 2026-07-21 Added do_receive_raw (backs channel::receive_raw): accepts a
+*      client if needed, then reads min(max, available()) bytes, non-blocking.
 */
 #ifndef ECOMM_ARDUINO_WIFI_CHANNEL_TPP_
 #define ECOMM_ARDUINO_WIFI_CHANNEL_TPP_
@@ -59,6 +61,19 @@ namespace ecomm::channels {
             if (not _client) return;
         }
         _client.write(reinterpret_cast<const std::uint8_t*>(&packet), sizeof(Packet));
+    }
+
+    template<std::uint8_t tag>
+    std::size_t arduino_wifi_channel<tag>::do_receive_raw(std::byte* dst, std::size_t max) noexcept {
+        if (not _client) {
+            _client = _server.available();
+            if (not _client) return 0;
+        }
+        const std::size_t avail = static_cast<std::size_t>(_client.available());
+        const std::size_t n = avail < max ? avail : max;
+        if (n == 0) return 0;
+        _client.read(reinterpret_cast<std::uint8_t*>(dst), n);
+        return n;
     }
 
 } // namespace ecomm::channels

@@ -48,6 +48,11 @@
 *     - Two packets delivered in a single simulate_data call are enqueued and
 *       dequeued independently.
 *
+*   receive_raw -- unframed byte access (backs router's reassembly path)
+*     - Reads all available bytes and advances the ring; a second read is empty.
+*     - Honours the `max` argument, draining incrementally across several reads.
+*     - Wraps correctly across the ring's physical end (two-chunk copy).
+*
 *   Ring buffer
 *     - try_receive returns nullopt once the ring is drained.
 *     - When a delivery overflows the ring, the existing backlog is discarded
@@ -103,6 +108,9 @@
 *      both engineer their overflow against an empty ring, where the old and
 *      new policies happen to coincide (see esp_async_wifi_channel.hpp's
 *      "Overflow resets to a clean run at offset 0" note).
+* - 2026-07-21 Added the `receive_raw` suite covering the new unframed byte read
+*      (backs `ecomm::router`'s reassembly path): available-bytes read + advance,
+*      `max`-limited incremental drain, and a ring-wrap read.
 */
 
 #include <gtest/gtest.h>
@@ -318,6 +326,80 @@ TEST_F(fixture, try_receive_handles_two_packets_in_one_delivery) {
     ASSERT_TRUE(result_b.has_value());
     EXPECT_EQ(std::memcmp(&result_a.value(), &pkt_a, sizeof(test_packet)), 0);
     EXPECT_EQ(std::memcmp(&result_b.value(), &pkt_b, sizeof(test_packet)), 0);
+}
+
+// ---------------------------------------------------------------------------
+// receive_raw -- unframed byte access (backs router's reassembly path)
+// ---------------------------------------------------------------------------
+
+TEST_F(fixture, receive_raw_reads_available_bytes_and_advances) {
+    const test_packet pkt = make_sealed();
+    inject(client, pkt);
+
+    std::byte out[sizeof(test_packet)]{};
+    const std::size_t n = ch.receive_raw(out, sizeof(out));
+
+    EXPECT_EQ(n, sizeof(test_packet));
+    EXPECT_EQ(std::memcmp(out, &pkt, sizeof(test_packet)), 0);
+
+    // Ring is now drained -- a second read yields nothing.
+    std::byte again[sizeof(test_packet)]{};
+    EXPECT_EQ(ch.receive_raw(again, sizeof(again)), 0u);
+}
+
+TEST_F(fixture, receive_raw_honours_max_and_drains_incrementally) {
+    const test_packet pkt = make_sealed();
+    inject(client, pkt);
+
+    std::byte out[sizeof(test_packet)]{};
+    std::size_t got = 0;
+
+    // Pull in 10-byte bites; the last read returns only the remainder.
+    while (got < sizeof(test_packet)) {
+        const std::size_t n = ch.receive_raw(out + got, 10);
+        ASSERT_GT(n, 0u);
+        EXPECT_LE(n, 10u);
+        got += n;
+    }
+
+    EXPECT_EQ(got, sizeof(test_packet));
+    EXPECT_EQ(std::memcmp(out, &pkt, sizeof(test_packet)), 0);
+    EXPECT_EQ(ch.receive_raw(out, sizeof(out)), 0u);
+}
+
+TEST_F(fixture, receive_raw_wraps_around_the_physical_ring_end) {
+    // Capacity is 4*sizeof(test_packet) = 128. Drive _tail forward so a later
+    // read must span the ring's physical wrap boundary, and confirm the two
+    // copy chunks stitch back together in order.
+    constexpr std::size_t cap = 4 * sizeof(test_packet); // 128
+    static_assert(cap == 128, "test assumes a 128-byte ring");
+
+    // 120 sequential bytes: 0,1,2,...,119.
+    std::vector<std::byte> first(120);
+    for (std::size_t i = 0; i < first.size(); ++i)
+        first[i] = static_cast<std::byte>(i);
+    client.simulate_data(first.data(), first.size());
+
+    // Consume 100, leaving 20 (values 100..119) and _tail at 100.
+    std::byte scratch[100]{};
+    ASSERT_EQ(ch.receive_raw(scratch, 100), 100u);
+
+    // 40 more bytes valued 200..239. on_data writes 8 at [120,128) then wraps
+    // 32 to [0,32); _head lands at 32.
+    std::vector<std::byte> second(40);
+    for (std::size_t i = 0; i < second.size(); ++i)
+        second[i] = static_cast<std::byte>(200 + i);
+    client.simulate_data(second.data(), second.size());
+
+    // Now 60 bytes are buffered starting at _tail=100 and wrapping: values
+    // 100..119 (20), then 200..239 (40).
+    std::byte out[60]{};
+    ASSERT_EQ(ch.receive_raw(out, sizeof(out)), 60u);
+
+    std::byte expected[60]{};
+    for (std::size_t i = 0; i < 20; ++i) expected[i]      = static_cast<std::byte>(100 + i);
+    for (std::size_t i = 0; i < 40; ++i) expected[20 + i] = static_cast<std::byte>(200 + i);
+    EXPECT_EQ(std::memcmp(out, expected, sizeof(out)), 0);
 }
 
 // ---------------------------------------------------------------------------

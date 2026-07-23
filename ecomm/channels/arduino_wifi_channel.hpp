@@ -64,6 +64,7 @@
 
 #ifndef ECOMM_NO_ARDUINO_WIFI_SUPPORT
 
+#include <cstddef>
 #include <cstdint>
 #include <type_traits>
 
@@ -125,6 +126,20 @@ namespace ecomm::channels {
         */
         template<typename Packet>
         void do_send(const Packet& packet) noexcept;
+
+        /**
+        * @brief Read up to `max` currently-available bytes, unframed.
+        *
+        * Called by `channel::receive_raw`. Accepts a new client from the server
+        * if none is connected, then reads `min(max, client.available())` bytes
+        * into `dst` and returns that count. Returns `0` if no client is
+        * available or no bytes have arrived. Never blocks.
+        *
+        * @param[out] dst Destination buffer (at least `max` bytes).
+        * @param[in]  max Maximum number of bytes to read.
+        * @return Number of bytes copied into `dst`.
+        */
+        std::size_t do_receive_raw(std::byte* dst, std::size_t max) noexcept;
 
         WiFiServer& _server; ///< Server accepting incoming connections.
         WiFiClient  _client; ///< Currently active client (may be unconnected).

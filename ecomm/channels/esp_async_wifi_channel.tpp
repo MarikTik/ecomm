@@ -27,6 +27,9 @@
 *      ring's physical wrap boundary, and in the common case (an existing
 *      backlog plus this delivery don't fit together, but the delivery alone
 *      does) keeps the new delivery whole and untorn instead of splitting it.
+* - 2026-07-21 Added do_receive_raw (backs channel::receive_raw): pops
+*      min(max, bytes_available()) bytes from the ring, wrapping as needed,
+*      under the same locking discipline as do_try_receive.
 */
 #ifndef ECOMM_CHANNELS_ESP_ASYNC_WIFI_CHANNEL_TPP_
 #define ECOMM_CHANNELS_ESP_ASYNC_WIFI_CHANNEL_TPP_
@@ -111,6 +114,33 @@ namespace ecomm::channels {
         _cs.exit();
 
         return true;
+    }
+
+    template<std::size_t BufferCapacity>
+    std::size_t esp_async_wifi_channel<BufferCapacity>::do_receive_raw(
+        std::byte* dst, std::size_t max
+    ) noexcept {
+        _cs.enter();
+        const std::size_t avail = bytes_available();
+        _cs.exit();
+
+        const std::size_t n = std::min(max, avail);
+        if (n == 0) return 0;
+
+        // Safe outside the lock for the same reason as do_try_receive: _tail is
+        // the consumer's exclusive domain and the [_tail, _tail+n) region was
+        // fully committed by on_data before `avail` was observed above.
+        const std::size_t first_chunk = std::min(n, BufferCapacity - _tail);
+        std::memcpy(dst, _ring.data() + _tail, first_chunk);
+        if (n > first_chunk) {
+            std::memcpy(dst + first_chunk, _ring.data(), n - first_chunk);
+        }
+
+        _cs.enter();
+        _tail = (_tail + n) % BufferCapacity;
+        _cs.exit();
+
+        return n;
     }
 
     // -------------------------------------------------------------------------

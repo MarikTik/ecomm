@@ -41,6 +41,7 @@
 #ifdef ARDUINO
 
 #include <HardwareSerial.h>
+#include <cstddef>
 #include <cstdint>
 #include <type_traits>
 
@@ -105,6 +106,18 @@ namespace ecomm::channels {
         */
         template<typename Packet>
         void do_send(const Packet& packet) noexcept;
+
+        /**
+        * @brief Read up to `max` currently-available bytes, unframed.
+        *
+        * Called by `channel::receive_raw`. Reads `min(max, available())` bytes
+        * into `dst` and returns that count; never blocks waiting for more.
+        *
+        * @param[out] dst Destination buffer (at least `max` bytes).
+        * @param[in]  max Maximum number of bytes to read.
+        * @return Number of bytes copied into `dst`.
+        */
+        std::size_t do_receive_raw(std::byte* dst, std::size_t max) noexcept;
 
         HardwareSerial& _serial; ///< Bound hardware serial port.
     };

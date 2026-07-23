@@ -268,6 +268,26 @@ namespace ecomm::channels {
         template<typename Packet>
         bool do_try_receive(Packet& out) noexcept;
 
+        /**
+        * @brief Pop up to `max` currently-buffered bytes from the ring, unframed.
+        *
+        * Called by `channel::receive_raw`. Copies `min(max, bytes_available())`
+        * bytes out of the ring (wrapping through the physical end as needed),
+        * advances `_tail` by that many, and returns the count. Performs no
+        * framing or validation -- it is the raw byte view of the ring that lets
+        * a caller (e.g. `ecomm::router`) reassemble packets itself.
+        *
+        * @param[out] dst Destination buffer (at least `max` bytes).
+        * @param[in]  max Maximum number of bytes to copy out.
+        * @return Number of bytes copied into `dst`.
+        *
+        * @note Same locking discipline as `do_try_receive`: the available byte
+        *       count is read under `_cs`, the copy runs outside it (the read
+        *       region is the consumer's exclusive, already-committed domain),
+        *       and `_tail` is advanced back under `_cs`.
+        */
+        std::size_t do_receive_raw(std::byte* dst, std::size_t max) noexcept;
+
         // --- Internal callback handlers (called from TCP task / ISR) --------
 
         /**

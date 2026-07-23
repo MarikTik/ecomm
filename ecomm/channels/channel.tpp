@@ -25,6 +25,10 @@
 * - 2026-07-16 Packet moved from a class template parameter to a per-method one;
 *              `_validator` member replaced by a local, stateless `validator<Packet>{}`
 *              instantiated fresh in each call (validator has no state to persist).
+* - 2026-07-21 Added `receive_raw(std::byte*, std::size_t)`, delegating to
+*              `Impl::do_receive_raw`. A raw, unframed byte read that lets callers
+*              do their own framing above the transport (used by `ecomm::router` to
+*              reassemble partially-arrived packets instead of misframing them).
 */
 #ifndef ECOMM_CHANNELS_CHANNEL_TPP_
 #define ECOMM_CHANNELS_CHANNEL_TPP_
@@ -59,6 +63,11 @@ namespace ecomm::channels {
         }
 
         return out;
+    }
+
+    template<typename Impl>
+    std::size_t channel<Impl>::receive_raw(std::byte* dst, std::size_t max) noexcept {
+        return static_cast<Impl*>(this)->do_receive_raw(dst, max);
     }
 
 } // namespace ecomm::channels
